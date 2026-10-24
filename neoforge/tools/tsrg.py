@@ -66,6 +66,18 @@ def aw_to_at(widener_paths, mapping):
                     out.append(f'{mod} {owner} {name}{mapping.desc(p[4])}')
                 else:
                     raise ValueError(raw)
+    # Fabric widens the owner (and its outer classes) of any widened member.
+    owners = []
+    for l in out:
+        parts = l.split(' ')
+        if len(parts) >= 3:
+            o = parts[1]
+            while True:
+                owners.append(f'public {o}')
+                if '$' not in o:
+                    break
+                o = o.rsplit('$', 1)[0]
+    out = out + owners
     # A field made mutable and accessible is one public-f line.
     final = []
     for l in out:
