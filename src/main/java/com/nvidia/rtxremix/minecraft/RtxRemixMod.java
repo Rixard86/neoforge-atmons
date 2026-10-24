@@ -501,6 +501,12 @@ public class RtxRemixMod implements ClientModInitializer {
             } else {
                 LOGGER.warn("RTX Remix disabled - SDK not found");
             }
+            if (renderer == null || !renderer.isInitialized()) {
+                // Capture hides what Remix draws from vanilla, so without a running
+                // renderer the world would be empty: leave it to vanilla instead.
+                LOGGER.warn("RTX Remix is not running; RTX rendering switched off, vanilla rendering stays on");
+                setRtxEnabled(false);
+            }
         });
         
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
