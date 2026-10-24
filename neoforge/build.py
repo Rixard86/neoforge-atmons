@@ -206,16 +206,26 @@ def mixin_jar():
     return lib('net', 'fabricmc', 'sponge-mixin', '0.15.2+mixin.0.8.7', 'sponge-mixin-0.15.2+mixin.0.8.7.jar')
 
 
+# Upstream mixins not built for NeoForge. Their class names are also removed
+# from the NeoForge mixin config.
+#   WallBlockMixin: connects walls to the Copper Beacon, which is server content.
+#   WeightedBakedModelMixin, MultipartBakedModelMixin: NeoForge replaces the
+#     vanilla getQuads they target; ported in compat/ on NeoForge's overload.
+EXCLUDED_MIXINS = ['WallBlockMixin', 'WeightedBakedModelMixin', 'MultipartBakedModelMixin']
+UPSTREAM_MIXIN_DIR = os.path.join(REPO, 'src', 'main', 'java', 'com', 'nvidia', 'rtxremix', 'minecraft', 'mixin')
+
+
 def source_files():
     roots = [os.path.join(REPO, 'src', 'main', 'java'),
              os.path.join(REPO, 'rtxremix-java', 'src'),
              os.path.join(HERE, 'compat', 'java'),
              os.path.join(HERE, 'compat', 'compileonly')]
+    excluded = {os.path.join(UPSTREAM_MIXIN_DIR, m + '.java') for m in EXCLUDED_MIXINS}
     out = []
     for r in roots:
         for dp, _, fs in os.walk(r):
             out += [os.path.join(dp, f) for f in fs if f.endswith('.java')]
-    return sorted(out)
+    return sorted(p for p in out if p not in excluded)
 
 
 def compile_classpath():
