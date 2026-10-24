@@ -62,8 +62,16 @@ def java(name='java'):
     return os.path.join(CONFIG['JDK'], 'bin', name)
 
 
-def run(cmd, **kw):
+def run(cmd, quiet=None, **kw):
     log('$', ' '.join(cmd if len(' '.join(cmd)) < 400 else cmd[:6] + ['...']))
+    if quiet:
+        with open(quiet, 'w') as out:
+            r = subprocess.run(cmd, stdout=out, stderr=subprocess.STDOUT, **kw)
+        if r.returncode:
+            with open(quiet) as f:
+                tail = f.read()[-4000:]
+            raise SystemExit(f'command failed ({r.returncode}), log {quiet}:\n{tail}')
+        return
     subprocess.run(cmd, check=True, **kw)
 
 
@@ -167,17 +175,17 @@ def stage_prepare():
     mc_yarn = W('mc-yarn.jar')
     if not fresh(mc_yarn, mc_moj, tsrg):
         cmd = [java(), '-Xmx2g', '-jar', art, '--input', mc_moj, '--output', mc_yarn,
-               '--names', tsrg, '--threads', '2', '--log', W('art-mc.log')]
+               '--names', tsrg, '--threads', '2']
         for l in libs:
             cmd += ['--lib', l]
-        run(cmd)
+        run(cmd, quiet=W('art-mc.log'))
     nf_yarn = W('neoforge-yarn.jar')
     if not fresh(nf_yarn, universal, tsrg):
         cmd = [java(), '-Xmx2g', '-jar', art, '--input', universal, '--output', nf_yarn,
-               '--names', tsrg, '--threads', '2', '--lib', mc_moj, '--log', W('art-nf.log')]
+               '--names', tsrg, '--threads', '2', '--lib', mc_moj]
         for l in libs:
             cmd += ['--lib', l]
-        run(cmd)
+        run(cmd, quiet=W('art-nf.log'))
     log('prepare done')
 
 

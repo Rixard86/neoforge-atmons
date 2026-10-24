@@ -157,7 +157,24 @@ def main():
     classes = {}  # moj -> yarn
     for off, moj in off2moj.items():
         y = off2yarn_class(off)
+        # Anonymous and local classes: obfuscation renumbers them, so Yarn's
+        # numbering can collide with Mojang's. Nothing refers to them by name,
+        # so keep Mojang's own suffix under the Yarn outer class.
+        if '$' in moj and moj.rsplit('$', 1)[1].isdigit() and '$' in y:
+            y = y.rsplit('$', 1)[0] + '$' + moj.rsplit('$', 1)[1]
         classes[moj] = y
+    # Outer-class renames must propagate to every nested class consistently.
+    for moj in sorted(classes, key=lambda c: c.count('$')):
+        if '$' in moj:
+            outer_m, inner_m = moj.rsplit('$', 1)
+            if outer_m in classes:
+                inner_y = classes[moj].rsplit('$', 1)[1] if '$' in classes[moj] else inner_m
+                classes[moj] = classes[outer_m] + '$' + inner_y
+    seen = {}
+    for moj, y in classes.items():
+        if y in seen:
+            raise SystemExit(f'class mapping collision: {seen[y]} and {moj} -> {y}')
+        seen[y] = moj
 
     # Descriptor helpers per namespace
     yarn_of_moj = classes
