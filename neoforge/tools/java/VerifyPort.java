@@ -579,8 +579,12 @@ public class VerifyPort {
                         callRet = Type.getType(r.desc());
                     }
                 } else if (value.equals("NEW")) {
-                    String t = target.startsWith("L") && target.endsWith(";") ? target.substring(1, target.length() - 1) : target;
-                    callRet = Type.getObjectType(t.contains("(") ? parseRef(t).owner() : t);
+                    // NEW targets are a class name, "Lclass;", or a constructor
+                    // descriptor "(args)Lclass;".
+                    String t = target;
+                    if (t.startsWith("(")) t = Type.getReturnType(t).getInternalName();
+                    else if (t.startsWith("L") && t.endsWith(";")) t = t.substring(1, t.length() - 1);
+                    callRet = Type.getObjectType(t);
                     if (!kind.equals("ModifyExpressionValue")) return; // constructor args need the <init> desc
                 } else {
                     return;
@@ -662,8 +666,8 @@ public class VerifyPort {
             }
             case "NEW" -> {
                 String type = target;
-                if (type != null && type.startsWith("L") && type.endsWith(";")) type = type.substring(1, type.length() - 1);
-                if (type != null && type.contains("(")) type = parseRef(type).owner();
+                if (type != null && type.startsWith("(")) type = Type.getReturnType(type).getInternalName();
+                else if (type != null && type.startsWith("L") && type.endsWith(";")) type = type.substring(1, type.length() - 1);
                 for (AbstractInsnNode i : tm.instructions) {
                     if (i instanceof TypeInsnNode ti && ti.getOpcode() == Opcodes.NEW && (type == null || ti.desc.equals(type))) count++;
                 }
