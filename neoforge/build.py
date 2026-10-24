@@ -259,10 +259,12 @@ def stage_compile():
     with open(W('sources.txt'), 'w') as f:
         f.write('\n'.join(srcs) + '\n')
     cp = compile_classpath()
-    # MixinExtras on the processor path, so its injectors (@WrapOperation,
-    # @ModifyExpressionValue, ...) get refmap entries too.
-    ap = [mixin_jar()] + asm_jars() + [p for p in cp if '/gson/' in p or '/guava/guava' in p or 'failureaccess' in p
-                                       or 'mixinextras' in p]
+    # MixinExtras first on the processor path: its processor registers the
+    # MixinExtras injectors (@WrapOperation, @ModifyExpressionValue, ...) with
+    # Mixin's, which must happen before Mixin's processor reports the
+    # annotation types it handles, or those injectors get no refmap entries.
+    ap = [p for p in cp if 'mixinextras' in p] + [mixin_jar()] + asm_jars() + \
+        [p for p in cp if '/gson/' in p or '/guava/guava' in p or 'failureaccess' in p]
     cmd = [java('javac'), '-J-Xmx2200m', '-encoding', 'UTF-8', '--release', '21', '-nowarn',
            '-Xmaxerrs', '5000', '-Xlint:-options', '-parameters',
            '-d', out, '-cp', os.pathsep.join(cp),
