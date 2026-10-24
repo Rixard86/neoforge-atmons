@@ -419,6 +419,7 @@ def stage_package():
         json.dump({'pack': {'description': 'RTX Remix for Minecraft resources', 'pack_format': 34}}, f)
     with open(os.path.join(stage, 'META-INF', 'MANIFEST.MF'), 'w') as f:
         f.write('Manifest-Version: 1.0\n'
+                f'Automatic-Module-Name: {MOD_ID}\n'
                 f'Implementation-Title: {MOD_ID}\n'
                 f'Implementation-Version: {version}\n'
                 'Implementation-Vendor: NVIDIA (upstream), NeoForge port\n\n')
