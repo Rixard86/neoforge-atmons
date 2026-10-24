@@ -1,0 +1,14 @@
+diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/RtxRemixMod.java b/src/main/java/com/nvidia/rtxremix/minecraft/RtxRemixMod.java
+index 013e464..35605e2 100644
+--- a/src/main/java/com/nvidia/rtxremix/minecraft/RtxRemixMod.java
++++ b/src/main/java/com/nvidia/rtxremix/minecraft/RtxRemixMod.java
+@@ -297,6 +297,9 @@ public class RtxRemixMod implements ClientModInitializer {
+             ((RemixMouseAccess) client.mouse).rtxremix$releaseActiveButton();
+         } finally {
+             client.mouse.unlockCursor();
++            // NeoForge port: unlocking drops GLFW's raw mouse registration, which had
++            // replaced the Remix overlay's, and the menu would get no mouse input.
++            com.nvidia.rtxremix.neoforge.RemixOverlayInput.reclaimRawMouse();
+         }
+     }
+ 

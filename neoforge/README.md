@@ -40,6 +40,10 @@ the water-rapids particles are left out for that reason.
   window is disabled and transparent to clicks, so input still goes to
   Minecraft, and Remix's menus take input through the runtime's own overlay
   window. `-Drtxremix.neoforge.presentWindow=main` restores upstream's behaviour.
+* Opening a Remix menu points raw mouse input back at the runtime's menu input
+  window (`RemixOverlayInput`). With Minecraft's "Raw Input" on, GLFW takes the
+  process's raw mouse registration while the cursor is locked and removes it on
+  unlock, which left the menus without a mouse after the first time in a world.
 * `ChunkRendererRegionMixin` retains snapshots in NeoForge's region constructor,
   which `RenderRegionCache` calls directly. Retaining only in vanilla's
   constructor let a finished section release snapshots that neighbouring
