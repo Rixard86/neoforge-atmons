@@ -416,6 +416,7 @@ public class VerifyPort {
     }
 
     static void checkInjector(String mixinName, MethodNode handler, AnnotationNode inj, List<ClassNode> targets) {
+        injectorsChecked++;
         String kind = inj.desc.substring(inj.desc.lastIndexOf('/') + 1, inj.desc.length() - 1);
         Object requireObj = annValue(inj, "require");
         int require = requireObj == null ? 1 : (Integer) requireObj;
@@ -447,6 +448,7 @@ public class VerifyPort {
                 AnnotationNode at = (AnnotationNode) ao;
                 int total = 0;
                 boolean unchecked = false;
+                atsChecked++;
                 for (MethodNode tm : matched) {
                     int n = countAt(mixinName, tm, at);
                     if (n < 0) unchecked = true;
@@ -513,7 +515,10 @@ public class VerifyPort {
         error(mixin, "@" + kind + " " + h.name + h.desc + ": " + why);
     }
 
+    static int handlersChecked = 0, injectorsChecked = 0, atsChecked = 0;
+
     static void checkHandler(String mixin, String kind, MethodNode h, ClassNode tn, MethodNode tm, List<Object> ats) {
+        handlersChecked++;
         List<Type> hp = handlerParams(h);
         Type[] targetArgs = Type.getArgumentTypes(tm.desc);
         Type targetRet = Type.getReturnType(tm.desc);
@@ -829,6 +834,8 @@ public class VerifyPort {
             for (String s : e.getValue()) System.out.println("    " + s);
         }
         System.out.println();
+        System.out.println("checked " + injectorsChecked + " injectors, " + atsChecked + " injection points, "
+                + handlersChecked + " handler/target pairs");
         System.out.println("linkage + mixin check: " + errors + " errors, " + warnings + " warnings");
         if (args.length > 2) scanNeighbours(Path.of(args[2]));
         System.exit(errors > 0 ? 1 : 0);
