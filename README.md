@@ -14,10 +14,12 @@ the water-rapids particles, both of which would need the server to have the mod.
 
 | | |
 |---|---|
-| Status | Builds and passes static verification against NeoForge 21.1.249; not yet tested in game |
+| Status | Runs in game: tested with ATMons 1.3.0 (NeoForge 21.1.249) on an RTX 3080 10 GB at 3440x1440, about 5 GB of video memory in use. Joining an ordinary ATMons server is not yet tested |
 | Needs | GeForce RTX 30-series or newer, NVIDIA driver 616.92+, Windows x64 |
 | Turn off in the instance | Sodium, Iris, ImmediatelyFast, Colorwheel (+ Patcher), Euphoria Patcher |
 | Set in the instance | Flywheel `backend = "flywheel:off"`, so Create's machines are path traced |
+| Resource packs | ATMons forces every pack in `resourcepacks/` on. Keep block textures at 16 to 32 px: higher-resolution packs can double Minecraft's block atlas. LabPBR packs work |
+| Not in this port | Copper Beacon and water-rapids particles (server content). Held and dropped items, falling blocks and particles keep colour and glow but not LabPBR relief and gloss |
 | Details | [neoforge/README.md](neoforge/README.md): layout, NeoForge changes, build, verification |
 
 ### Using it
@@ -29,7 +31,8 @@ ATMons instance (keep the original for normal play):
 1. Put the built jar in `mods/`.
 2. Disable the mods listed above and set the Flywheel backend.
 3. Detach the copy from the modpack, so a pack update cannot undo 1 and 2.
-4. Start the game; the first launch unpacks about 1 GB of runtime files.
+4. Start the game; the first launch after each new jar unpacks about 1 GB of
+   runtime files.
 5. Type `/rtx status` in chat; *Renderer Initialized* and *SDK Available* should
    both be `true`. `F8` toggles path tracing.
 
