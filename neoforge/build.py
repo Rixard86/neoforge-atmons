@@ -416,10 +416,39 @@ def stage_package():
     log('package done:', final, f'{os.path.getsize(final) / 1e6:.0f} MB')
 
 
+# ------------------------------------------------------------------- verify
+
+def built_jar():
+    return os.path.join(W('dist'), f'rtx-remix-renderer-{mod_version()}.jar')
+
+
+def stage_verify():
+    """Static check of the built jar against the real runtime (Mojang-named,
+    NeoForge-patched Minecraft, NeoForge, libraries) and the instance's mods."""
+    universal = lib('net', 'neoforged', 'neoforge', CONFIG['NEOFORGE'], f'neoforge-{CONFIG["NEOFORGE"]}-universal.jar')
+    runtime = [W('mc-moj.jar'), universal] + compile_classpath()[2:]
+    with open(W('runtime-classpath.txt'), 'w') as f:
+        f.write('\n'.join(runtime) + '\n')
+    tool = os.path.join(HERE, 'tools', 'java', 'VerifyPort.java')
+    cmd = [java(), '-Xmx1500m', '-cp', os.pathsep.join(asm_jars()), tool, built_jar(), W('runtime-classpath.txt')]
+    mods = os.environ.get('RTX_INSTANCE_MODS')
+    if mods:
+        cmd.append(mods)
+    log('$', 'VerifyPort', built_jar())
+    with open(W('verify.log'), 'w') as out:
+        r = subprocess.run(cmd, stdout=out, stderr=subprocess.STDOUT)
+    with open(W('verify.log')) as f:
+        text = f.read()
+    print(text[-6000:])
+    if r.returncode:
+        raise SystemExit('verify failed, see ' + W('verify.log'))
+
+
 STAGES = {
     'prepare': stage_prepare,
     'compile': stage_compile,
     'package': stage_package,
+    'verify': stage_verify,
 }
 
 if __name__ == '__main__':
