@@ -70,6 +70,7 @@ public class PropagateMappings {
         // 0. Apply proposals the way Yarn's build does: constants (static final
         //    fields) and record components take their natural names.
         int applied = 0;
+        Map<String, String> proposedFrom = new HashMap<>();
         for (Info i : infos.values()) {
             Map<String, String> fm = fieldMap.get(i.name());
             if (fm != null) {
@@ -78,8 +79,26 @@ public class PropagateMappings {
                     boolean constant = (acc & (Opcodes.ACC_STATIC | Opcodes.ACC_FINAL)) == (Opcodes.ACC_STATIC | Opcodes.ACC_FINAL);
                     boolean component = "java/lang/Record".equals(i.sup()) && (acc & Opcodes.ACC_STATIC) == 0;
                     if ((constant || component) && proposals.contains(i.name() + " " + f[0]) && fm.containsKey(f[0])) {
-                        fm.put(f[0], f[0]);
+                        String before = fm.put(f[0], f[0]);
+                        proposedFrom.put(i.name() + " " + f[0], before);
                         applied++;
+                    }
+                }
+                // A proposal must not land on a name another field already has.
+                Map<String, Integer> count = new HashMap<>();
+                for (String[] f : i.fields()) count.merge(fm.getOrDefault(f[0], f[0]), 1, Integer::sum);
+                for (String[] f : i.fields()) {
+                    String k = i.name() + " " + f[0];
+                    if (proposedFrom.containsKey(k) && count.get(fm.get(f[0])) > 1) {
+                        fm.put(f[0], proposedFrom.remove(k));
+                        applied--;
+                    }
+                }
+                // Unmapped fields (NeoForge additions) keep their names unless that clashes.
+                Set<String> taken = new HashSet<>(fm.values());
+                for (String[] f : i.fields()) {
+                    if (!fm.containsKey(f[0]) && taken.contains(f[0])) {
+                        fm.put(f[0], "nf$" + f[0]);
                     }
                 }
             }
