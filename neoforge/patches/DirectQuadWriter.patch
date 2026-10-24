@@ -1,0 +1,123 @@
+diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/DirectQuadWriter.java b/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/DirectQuadWriter.java
+index ff692e4..70d9d48 100644
+--- a/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/DirectQuadWriter.java
++++ b/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/DirectQuadWriter.java
+@@ -208,6 +208,8 @@ public final class DirectQuadWriter {
+             new BlockTextureManager.SpriteEntry[MAX_BLOCK_QUADS];
+     private final int[] stageCategory = new int[MAX_BLOCK_QUADS];
+     private final boolean[] stageDiscarded = new boolean[MAX_BLOCK_QUADS];
++    /** NeoForge port: one quad's UVs remapped into the compact PBR atlas. */
++    private final float[] pbrUvs = new float[8];
+ 
+     // --- public API ---
+ 
+@@ -285,19 +287,33 @@ public final class DirectQuadWriter {
+         String bk = isWater ? "water" : renderLayer;
+         BlockTextureManager.SpriteEntry se = (spriteId != null && tex != null)
+                 ? tex.getSpriteById(spriteId) : null;
++        boolean pbrAtlas = false;
+         if (se != null && se.hasSSS && tex != null && tex.getAtlasMaterialSSS(layerType) != null) {
+             bk = sssBucketKeyForOriginalLayer(renderLayer, bk);
++            pbrAtlas = true;
++        } else if (!isWater && usesPbrAtlas(se, bk, tex)) {
++            bk = pbrBucketKey(bk);
++            pbrAtlas = true;
+         }
+         final String bucketKey = bk;
+ 
+         BucketBuffer bb = getBucket(cat, bucketKey);
+ 
++        float[] quadUvs = uvs;
++        if (pbrAtlas) {
++            // NeoForge port: SSS and PBR materials sample the compact PBR atlas.
++            remapToPbrAtlas(se, uvs, 0);
++            quadUvs = pbrUvs;
++            su0 = se.pbrU(su0); sv0 = se.pbrV(sv0);
++            su1 = se.pbrU(su1); sv1 = se.pbrV(sv1);
++        }
++
+         int boundsMin = isWater ? HardcodedVertex.packHalf2x16(0, 0)
+                                 : HardcodedVertex.packHalf2x16(su0, sv0);
+         int boundsMax = isWater ? HardcodedVertex.packHalf2x16(1, 1)
+                                 : HardcodedVertex.packHalf2x16(su1, sv1);
+ 
+-        bb.writeQuad(positions, 0, uvs, 0, nx, ny, nz, color, boundsMin, boundsMax);
++        bb.writeQuad(positions, 0, quadUvs, 0, nx, ny, nz, color, boundsMin, boundsMax);
+     }
+ 
+     /**
+@@ -326,17 +342,34 @@ public final class DirectQuadWriter {
+             if (cat == ChunkManager.CAT_SOLID && layerType != solidType) {
+                 bk = "solid";
+             }
++            boolean pbrAtlas = false;
+             if (se != null && se.hasSSS && tex != null && tex.getAtlasMaterialSSS(layerType) != null) {
+                 bk = sssBucketKeyForOriginalLayer(layer, bk);
++                pbrAtlas = true;
++            } else if (usesPbrAtlas(se, bk, tex)) {
++                bk = pbrBucketKey(bk);
++                pbrAtlas = true;
+             }
+             final String bucketKey = bk;
+ 
+             BucketBuffer bb = getBucket(cat, bucketKey);
+ 
+-            int boundsMin = HardcodedVertex.packHalf2x16(stageSU0[i], stageSV0[i]);
+-            int boundsMax = HardcodedVertex.packHalf2x16(stageSU1[i], stageSV1[i]);
++            float su0 = stageSU0[i], sv0 = stageSV0[i], su1 = stageSU1[i], sv1 = stageSV1[i];
++            float[] quadUvs = stageUvs;
++            int uvOff = i * 8;
++            if (pbrAtlas) {
++                // NeoForge port: SSS and PBR materials sample the compact PBR atlas.
++                remapToPbrAtlas(se, stageUvs, uvOff);
++                quadUvs = pbrUvs;
++                uvOff = 0;
++                su0 = se.pbrU(su0); sv0 = se.pbrV(sv0);
++                su1 = se.pbrU(su1); sv1 = se.pbrV(sv1);
++            }
++
++            int boundsMin = HardcodedVertex.packHalf2x16(su0, sv0);
++            int boundsMax = HardcodedVertex.packHalf2x16(su1, sv1);
+ 
+-            bb.writeQuad(stagePos, i * 12, stageUvs, i * 8,
++            bb.writeQuad(stagePos, i * 12, quadUvs, uvOff,
+                          stageNx[i], stageNy[i], stageNz[i],
+                          stageColor[i], boundsMin, boundsMax);
+         }
+@@ -633,6 +666,36 @@ public final class DirectQuadWriter {
+         return bb;
+     }
+ 
++    /**
++     * NeoForge port: whether a quad of this sprite goes to the PBR-atlas material
++     * of its bucket's layer. The SSS buckets already use the PBR atlas.
++     */
++    private static boolean usesPbrAtlas(BlockTextureManager.SpriteEntry se, String bucketKey,
++                                        BlockTextureManager tex) {
++        return se != null && se.inPbrAtlas && tex != null
++                && tex.getPbrAtlasMaterial(BlockTextureManager.layerType(bucketKey)) != null;
++    }
++
++    /** Writes the quad's four UVs, mapped into the PBR atlas, to {@link #pbrUvs}. */
++    private void remapToPbrAtlas(BlockTextureManager.SpriteEntry se, float[] uvs, int off) {
++        for (int v = 0; v < 4; v++) {
++            pbrUvs[v * 2] = se.pbrU(uvs[off + v * 2]);
++            pbrUvs[v * 2 + 1] = se.pbrV(uvs[off + v * 2 + 1]);
++        }
++    }
++
++    /** The PBR-atlas bucket for a layer bucket; constants keep the hot path allocation-free. */
++    static String pbrBucketKey(String bucketKey) {
++        return switch (bucketKey) {
++            case "solid" -> "solid_pbr";
++            case "cutout" -> "cutout_pbr";
++            case "cutout_mipped" -> "cutout_mipped_pbr";
++            case "translucent" -> "translucent_pbr";
++            case "glass" -> "glass_pbr";
++            default -> bucketKey + "_pbr";
++        };
++    }
++
+     static String sssBucketKeyForOriginalLayer(String layer, String bucketKey) {
+         return switch (layer) {
+             case "cutout" -> "cutout_sss";
