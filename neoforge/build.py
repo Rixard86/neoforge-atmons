@@ -229,6 +229,14 @@ def source_files():
     return sorted(p for p in out if p not in excluded)
 
 
+def access_wideners():
+    """Upstream's widener plus the NeoForge port's (what Fabric API's
+    transitive wideners provided on Fabric). Both apply at compile time and,
+    as an access transformer, at runtime."""
+    return [os.path.join(REPO, 'src', 'main', 'resources', 'rtx-remix-renderer.accesswidener'),
+            os.path.join(HERE, 'compat', 'neoforge.accesswidener')]
+
+
 def compile_classpath():
     cp = [W('mc-yarn-aw.jar'), W('neoforge-yarn.jar')]
     cp += [os.path.join(W('jarjar'), f) for f in sorted(os.listdir(W('jarjar')))]
@@ -238,10 +246,10 @@ def compile_classpath():
 
 
 def stage_compile():
-    aw = os.path.join(REPO, 'src', 'main', 'resources', 'rtx-remix-renderer.accesswidener')
+    aws = access_wideners()
     tool = os.path.join(HERE, 'tools', 'java', 'AccessWidenerApplier.java')
-    if not fresh(W('mc-yarn-aw.jar'), W('mc-yarn.jar'), aw, tool):
-        run([java(), '-cp', os.pathsep.join(asm_jars()), tool, W('mc-yarn.jar'), aw, W('mc-yarn-aw.jar')])
+    if not fresh(W('mc-yarn-aw.jar'), W('mc-yarn.jar'), tool, *aws):
+        run([java(), '-cp', os.pathsep.join(asm_jars()), tool, W('mc-yarn.jar'), W('mc-yarn-aw.jar')] + aws)
 
     out = W('classes')
     if os.path.exists(out):

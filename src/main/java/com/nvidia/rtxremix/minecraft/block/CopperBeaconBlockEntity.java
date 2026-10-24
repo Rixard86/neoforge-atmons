@@ -60,7 +60,7 @@ public final class CopperBeaconBlockEntity extends BlockEntity
 
     public static final BlockEntityType<CopperBeaconBlockEntity> TYPE =
             BlockEntityType.Builder.create(
-                    CopperBeaconBlockEntity::new, CopperBeaconBlock.INSTANCE).build();
+                    CopperBeaconBlockEntity::new, CopperBeaconBlock.INSTANCE).build(null);
 
     private float intensityMultiplier = DEFAULT_INTENSITY_MULTIPLIER;
     private float coneAngle = DEFAULT_CONE_ANGLE;

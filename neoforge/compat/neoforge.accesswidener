@@ -1,0 +1,12 @@
+accessWidener v2 named
+
+# NeoForge port. On Fabric these come from Fabric API's transitive access
+# wideners or are never needed; here they apply at compile time and, converted
+# to an access transformer, at runtime.
+
+# RenderLayerUtils reads RenderLayer$MultiPhaseParameters.texture (Fabric API widens the type)
+accessible class net/minecraft/client/render/RenderPhase$TextureBase
+
+# Compile only: the Copper Beacon screen registration is skipped on NeoForge
+# (NeoForge makes this private in favour of RegisterMenuScreensEvent).
+accessible method net/minecraft/client/gui/screen/ingame/HandledScreens register (Lnet/minecraft/screen/ScreenHandlerType;Lnet/minecraft/client/gui/screen/ingame/HandledScreens$Provider;)V

@@ -84,7 +84,9 @@ public class PropagateMappings {
                 }
             }
             Map<String, String> mm = methodMap.get(i.name());
-            if (mm != null && "java/lang/Record".equals(i.sup())) {
+            if (mm != null) {
+                // Record component accessors, and the interface methods records
+                // implement (both carry comp_ intermediaries).
                 for (String[] m : i.methods()) {
                     String key = m[0] + m[1];
                     if (proposals.contains(i.name() + " " + key) && mm.containsKey(key)) {
@@ -98,6 +100,38 @@ public class PropagateMappings {
 
         // 1. Overrides take the overridden method's name (resolved top-down).
         Set<String> done = new HashSet<>();
+        for (String c : infos.keySet()) resolveOverrides(c, done);
+
+        // 1b. Specialized methods (covariant overrides, reached through a
+        //     compiler bridge) take the bridged method's name, as Yarn's build
+        //     does. Then resolve overrides again so subclasses follow.
+        int specialized = 0;
+        for (Info i : infos.values()) {
+            Map<String, String> mm = methodMap.get(i.name());
+            if (mm == null) continue;
+            Map<String, String> bridgeNames = new HashMap<>();
+            for (String[] m : i.methods()) {
+                int acc = Integer.parseInt(m[2]);
+                if ((acc & Opcodes.ACC_BRIDGE) != 0) {
+                    String t = mm.get(m[0] + m[1]);
+                    if (t != null) bridgeNames.put(m[0] + "/" + argCount(m[1]), t);
+                }
+            }
+            if (bridgeNames.isEmpty()) continue;
+            for (String[] m : i.methods()) {
+                int acc = Integer.parseInt(m[2]);
+                if ((acc & Opcodes.ACC_BRIDGE) != 0) continue;
+                String key = m[0] + m[1];
+                String t = mm.get(key);
+                String b = bridgeNames.get(m[0] + "/" + argCount(m[1]));
+                if (b != null && t != null && t.matches("method_\\d+")) {
+                    mm.put(key, b);
+                    specialized++;
+                }
+            }
+        }
+        System.out.println("named " + specialized + " specialized methods");
+        done = new HashSet<>();
         for (String c : infos.keySet()) resolveOverrides(c, done);
 
         // 2. List inherited members under subclasses.
@@ -155,6 +189,10 @@ public class PropagateMappings {
         while (m.find()) m.appendReplacement(sb, Matcher.quoteReplacement("L" + mapClass(m.group(1)) + ";"));
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    static int argCount(String desc) {
+        return Type.getArgumentTypes(desc).length;
     }
 
     static boolean overridable(int acc) {
