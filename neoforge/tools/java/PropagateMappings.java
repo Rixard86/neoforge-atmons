@@ -112,7 +112,7 @@ public class PropagateMappings {
             Map<String, String> bridgeNames = new HashMap<>();
             for (String[] m : i.methods()) {
                 int acc = Integer.parseInt(m[2]);
-                if ((acc & Opcodes.ACC_BRIDGE) != 0) {
+                if (isBridge(acc)) {
                     String t = mm.get(m[0] + m[1]);
                     if (t != null) bridgeNames.put(m[0] + "/" + argCount(m[1]), t);
                 }
@@ -120,7 +120,7 @@ public class PropagateMappings {
             if (bridgeNames.isEmpty()) continue;
             for (String[] m : i.methods()) {
                 int acc = Integer.parseInt(m[2]);
-                if ((acc & Opcodes.ACC_BRIDGE) != 0) continue;
+                if (isBridge(acc)) continue;
                 String key = m[0] + m[1];
                 String t = mm.get(key);
                 String b = bridgeNames.get(m[0] + "/" + argCount(m[1]));
@@ -189,6 +189,11 @@ public class PropagateMappings {
         while (m.find()) m.appendReplacement(sb, Matcher.quoteReplacement("L" + mapClass(m.group(1)) + ";"));
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    /** Obfuscation drops ACC_BRIDGE; a synthetic, non-static method is a bridge here. */
+    static boolean isBridge(int acc) {
+        return (acc & (Opcodes.ACC_BRIDGE | Opcodes.ACC_SYNTHETIC)) != 0 && (acc & Opcodes.ACC_STATIC) == 0;
     }
 
     static int argCount(String desc) {
