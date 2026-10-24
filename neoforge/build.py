@@ -189,8 +189,67 @@ def stage_prepare():
     log('prepare done')
 
 
+# ------------------------------------------------------------------ compile
+
+def asm_jars():
+    return [lib('org', 'ow2', 'asm', a, '9.10.1', f'{a}-9.10.1.jar')
+            for a in ('asm', 'asm-tree', 'asm-commons', 'asm-util', 'asm-analysis')]
+
+
+def mixin_jar():
+    return lib('net', 'fabricmc', 'sponge-mixin', '0.15.2+mixin.0.8.7', 'sponge-mixin-0.15.2+mixin.0.8.7.jar')
+
+
+def source_files():
+    roots = [os.path.join(REPO, 'src', 'main', 'java'),
+             os.path.join(REPO, 'rtxremix-java', 'src'),
+             os.path.join(HERE, 'compat', 'java')]
+    out = []
+    for r in roots:
+        for dp, _, fs in os.walk(r):
+            out += [os.path.join(dp, f) for f in fs if f.endswith('.java')]
+    return sorted(out)
+
+
+def compile_classpath():
+    cp = [W('mc-yarn-aw.jar'), W('neoforge-yarn.jar')]
+    cp += [os.path.join(W('jarjar'), f) for f in sorted(os.listdir(W('jarjar')))]
+    with open(W('libraries.txt')) as f:
+        cp += [l.strip() for l in f if l.strip()]
+    return cp
+
+
+def stage_compile():
+    aw = os.path.join(REPO, 'src', 'main', 'resources', 'rtx-remix-renderer.accesswidener')
+    tool = os.path.join(HERE, 'tools', 'java', 'AccessWidenerApplier.java')
+    if not fresh(W('mc-yarn-aw.jar'), W('mc-yarn.jar'), aw, tool):
+        run([java(), '-cp', os.pathsep.join(asm_jars()), tool, W('mc-yarn.jar'), aw, W('mc-yarn-aw.jar')])
+
+    out = W('classes')
+    if os.path.exists(out):
+        shutil.rmtree(out)
+    os.makedirs(out)
+    srcs = source_files()
+    with open(W('sources.txt'), 'w') as f:
+        f.write('\n'.join(srcs) + '\n')
+    cp = compile_classpath()
+    ap = [mixin_jar()] + asm_jars() + [p for p in cp if '/gson/' in p or '/guava/guava' in p or 'failureaccess' in p]
+    cmd = [java('javac'), '-J-Xmx2200m', '-encoding', 'UTF-8', '--release', '21', '-nowarn',
+           '-Xmaxerrs', '5000', '-Xlint:-options', '-parameters',
+           '-d', out, '-cp', os.pathsep.join(cp),
+           '-processorpath', os.pathsep.join(ap),
+           '-AreobfTsrgFile=' + W('map', 'yarn2moj.tsrg'),
+           '-AoutTsrgFile=' + W('mixin-out.tsrg'),
+           '-AoutRefMapFile=' + os.path.join(out, 'rtx-remix-renderer-refmap.json'),
+           '-AdefaultObfuscationEnv=searge', '-AmappingTypes=tsrg',
+           '@' + W('sources.txt')]
+    run(cmd, quiet=W('javac.log'))
+    log('compile done:', sum(len(fs) for _, _, fs in os.walk(out)), 'files')
+
+
 STAGES = {
     'prepare': stage_prepare,
+    'compile': stage_compile,
 }
 
 if __name__ == '__main__':
