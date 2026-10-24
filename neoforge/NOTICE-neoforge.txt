@@ -1,0 +1,17 @@
+RTX Remix for Minecraft, NeoForge port (unofficial)
+
+This jar is a NeoForge build of NVIDIA's RTX Remix for Minecraft
+(https://github.com/NVIDIAGameWorks/rtx-remix-minecraft, Apache-2.0).
+The native RTX Remix runtime, textures and assets are taken unchanged from
+NVIDIA's v0.1.0 release; their notices are LICENSE_rtx-remix-renderer,
+NOTICE_rtx-remix-renderer and THIRD_PARTY_NOTICES_rtx-remix-renderer.md.
+
+Changes for NeoForge are in https://github.com/Rixard86/neoforge-atmons
+(neoforge/ and a few marked upstream lines).
+
+The classes under com/nvidia/rtxremix/neoforge/fabric include code from
+Fabric API (https://github.com/FabricMC/fabric), Copyright (c) 2016-2026
+FabricMC, licensed under the Apache License, Version 2.0.
+
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG
+OR MICROSOFT. Not an official NVIDIA product.
