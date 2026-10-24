@@ -11,6 +11,8 @@
 //  2. Mixins: every mixin target class, target method, @At injection point
 //     (INVOKE, FIELD, NEW, CONSTANT, with ordinals), @Shadow, @Accessor and
 //     @Invoker resolves in the real target bytecode, through the refmap.
+//     It also warns when NeoForge calls an overload of a target method that
+//     never goes through the method the mixin injects into.
 //  3. Neighbours (optional): which other mods' mixins hit the same target
 //     methods, as a list of places to look first if something breaks.
 //
@@ -426,13 +428,21 @@ public class VerifyPort {
         for (ClassNode tn : targets) {
             List<MethodNode> matched = new ArrayList<>();
             for (Object mo : methods) {
-                Ref r = parseRef(remap(mixinName, (String) mo));
+                String selector = remap(mixinName, (String) mo);
+                Ref r = parseRef(selector);
+                String name = r.name();
+                // Mixin selects only the first method a selector matches unless it
+                // carries a quantifier ("name*", "{n}") or names no method at all.
+                boolean matchAll = name == null || selector.contains("*") || selector.contains("{");
+                if (name != null && name.endsWith("*")) name = name.substring(0, name.length() - 1);
+                int before = matched.size();
                 for (MethodNode tm : tn.methods) {
-                    if (r.name() != null && !tm.name.equals(r.name())) continue;
+                    if (name != null && !tm.name.equals(name)) continue;
                     if (r.desc() != null && !tm.desc.equals(r.desc())) continue;
                     matched.add(tm);
+                    if (!matchAll) break;
                 }
-                if (matched.isEmpty() && require > 0) {
+                if (matched.size() == before && require > 0) {
                     error(mixinName, "@" + kind + " " + handler.name + ": target method " + mo + " -> "
                             + remap(mixinName, (String) mo) + " not found in " + tn.name);
                 }
@@ -440,6 +450,7 @@ public class VerifyPort {
             for (MethodNode tm : matched) {
                 ourTargets.computeIfAbsent(tn.name + "." + tm.name + tm.desc, k -> new TreeSet<>()).add(simple(mixinName));
                 checkHandler(mixinName, kind, handler, tn, tm, ats);
+                checkOverloadBypass(mixinName, kind, handler, tn, tm);
             }
             if (kind.equals("WrapMethod") || (constantInjector && ats.isEmpty()) || matched.isEmpty()) continue;
             // Mixin counts successful injections across every matched target
@@ -464,6 +475,74 @@ public class VerifyPort {
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------ NeoForge overloads
+
+    /**
+     * NeoForge often adds an overload with extra parameters next to a vanilla method
+     * and calls the overload directly. A mixin on the vanilla method then never runs
+     * for those calls, which no other check notices because the target still exists.
+     * Warns when an overload whose parameters extend the target's does not go
+     * through the target and is called from Minecraft or NeoForge.
+     */
+    static void checkOverloadBypass(String mixinName, String kind, MethodNode handler, ClassNode tn, MethodNode tm) {
+        if (modClasses.containsKey(tn.name)) return;
+        Type[] args = Type.getArgumentTypes(tm.desc);
+        Type ret = Type.getReturnType(tm.desc);
+        for (MethodNode o : tn.methods) {
+            if (o == tm || !o.name.equals(tm.name)) continue;
+            Type[] oa = Type.getArgumentTypes(o.desc);
+            if (oa.length <= args.length || !Type.getReturnType(o.desc).equals(ret)) continue;
+            boolean extendsTarget = true;
+            for (int i = 0; i < args.length && extendsTarget; i++) extendsTarget = oa[i].equals(args[i]);
+            if (!extendsTarget || invokes(o, tn.name, tm.name, tm.desc)) continue;
+            int direct = callSites(tn.name + "." + o.name + o.desc);
+            if (direct == 0) continue;
+            warn(mixinName, "@" + kind + " " + handler.name + ": targets " + tn.name + "." + tm.name + tm.desc
+                    + ", but " + direct + " call site(s) use the overload " + o.name + o.desc
+                    + ", which does not go through it");
+        }
+    }
+
+    static boolean invokes(MethodNode m, String owner, String name, String desc) {
+        for (AbstractInsnNode i : m.instructions) {
+            if (i instanceof MethodInsnNode mi && mi.owner.equals(owner) && mi.name.equals(name) && mi.desc.equals(desc)) return true;
+        }
+        return false;
+    }
+
+    static Map<String, Integer> callSiteCounts;
+
+    /** Call sites of "owner.name+desc" in Minecraft and NeoForge, indexed on first use. */
+    static int callSites(String key) {
+        if (callSiteCounts == null) {
+            Map<String, Integer> counts = new HashMap<>();
+            for (Map.Entry<String, ZipFile> e : index.entrySet()) {
+                String c = e.getKey();
+                if (modClasses.containsKey(c)) continue;
+                if (!(c.startsWith("net/minecraft/") || c.startsWith("com/mojang/") || c.startsWith("net/neoforged/"))) continue;
+                try {
+                    ZipFile z = e.getValue();
+                    byte[] data = z.getInputStream(z.getEntry(c + ".class")).readAllBytes();
+                    new ClassReader(data).accept(new ClassVisitor(Opcodes.ASM9) {
+                        @Override
+                        public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] exceptions) {
+                            return new MethodVisitor(Opcodes.ASM9) {
+                                @Override
+                                public void visitMethodInsn(int opcode, String owner, String n, String d, boolean itf) {
+                                    counts.merge(owner + "." + n + d, 1, Integer::sum);
+                                }
+                            };
+                        }
+                    }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+                } catch (IOException ex) {
+                    throw new UncheckedIOException(ex);
+                }
+            }
+            callSiteCounts = counts;
+        }
+        return callSiteCounts.getOrDefault(key, 0);
     }
 
     // ------------------------------------------------------------ handler signatures
