@@ -192,6 +192,8 @@ def main():
         inter = int_fields.get((off_owner, off_name))
         int_owner = off2int.get(off_owner, off_owner)
         if inter is None:
+            if off_name != moj_name:
+                continue  # obfuscated but no intermediary of its own: inherited, propagated later
             yname = off_name  # not obfuscated: every namespace keeps the official name
         else:
             yname = y_fields.get((int_owner, inter), inter)
@@ -207,7 +209,9 @@ def main():
         int_owner = off2int.get(off_owner, off_owner)
         if inter is None:
             n_missing += 1
-            yname = off_name  # not obfuscated (or inherited from a library type)
+            if off_name != moj_name:
+                continue  # an override: takes the overridden method's name in PropagateMappings
+            yname = off_name  # not obfuscated: every namespace keeps the official name
         else:
             int_desc = off_desc_to_int(off_desc)
             yname = y_methods.get((int_owner, inter, int_desc), inter)
