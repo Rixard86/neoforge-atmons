@@ -134,6 +134,37 @@ public class PropagateMappings {
         done = new HashSet<>();
         for (String c : infos.keySet()) resolveOverrides(c, done);
 
+        // 1c. A method the mapping does not know (a NeoForge addition) keeps
+        //     its name, unless a mapped method of the same class lands on that
+        //     name and descriptor; then the unknown one gets a prefix so the
+        //     remapped class stays valid. Overrides follow it.
+        int clashes = 0;
+        for (Info i : infos.values()) {
+            Map<String, String> mm = methodMap.computeIfAbsent(i.name(), k -> new HashMap<>());
+            Map<String, List<String[]>> byTarget = new HashMap<>();
+            for (String[] m : i.methods()) {
+                if (m[0].startsWith("<")) continue;
+                String key = m[0] + m[1];
+                String t = mm.getOrDefault(key, m[0]);
+                byTarget.computeIfAbsent(t + mapDesc(m[1]), k -> new ArrayList<>()).add(m);
+            }
+            for (List<String[]> group : byTarget.values()) {
+                if (group.size() < 2) continue;
+                for (String[] m : group) {
+                    String key = m[0] + m[1];
+                    if (!mm.containsKey(key)) {
+                        mm.put(key, "nf$" + m[0]);
+                        clashes++;
+                    }
+                }
+            }
+        }
+        System.out.println("renamed " + clashes + " unmapped methods that clashed with mapped ones");
+        if (clashes > 0) {
+            done = new HashSet<>();
+            for (String c : infos.keySet()) resolveOverrides(c, done);
+        }
+
         // 2. List inherited members under subclasses.
         Map<String, Map<String, String>> fullMethods = new HashMap<>();
         Map<String, Map<String, String>> fullFields = new HashMap<>();
