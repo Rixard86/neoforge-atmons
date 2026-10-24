@@ -1,0 +1,39 @@
+diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/BlockQuadEmitter.java b/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/BlockQuadEmitter.java
+index a782e3a..630da15 100644
+--- a/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/BlockQuadEmitter.java
++++ b/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/BlockQuadEmitter.java
+@@ -354,6 +354,13 @@ public final class BlockQuadEmitter {
+ 
+         BakedModel model = blockRenderManager.getModel(state);
+         String layerName = classifyBlockLayer(state);
++        // NeoForge: modded models (connected textures, Create, ...) shape their
++        // quads from per-block model data, which vanilla's getQuads leaves empty.
++        net.neoforged.neoforge.client.model.data.ModelData regionData =
++                world instanceof net.minecraft.client.render.chunk.ChunkRendererRegion region
++                        ? region.getModelData(pos)
++                        : net.neoforged.neoforge.client.model.data.ModelData.EMPTY;
++        modelData = model.getModelData(world, pos, state, regionData);
+ 
+         if (model instanceof FabricBakedModel fbm && !fbm.isVanillaAdapter()) {
+             emitFrapiBlock(world, state, model, fbm, layerName, lx, ly, lz);
+@@ -394,6 +401,10 @@ public final class BlockQuadEmitter {
+         }
+     }
+ 
++    /** NeoForge: model data for the block being emitted (set in emitBlock). */
++    private net.neoforged.neoforge.client.model.data.ModelData modelData =
++            net.neoforged.neoforge.client.model.data.ModelData.EMPTY;
++
+     private void emitVanillaBlock(BlockRenderView world, BlockState state,
+                                    BakedModel model, String layerName,
+                                    float lx, float ly, float lz) {
+@@ -404,7 +415,8 @@ public final class BlockQuadEmitter {
+             }
+ 
+             random.setSeed(modelRandomSeed);
+-            List<BakedQuad> bakedQuads = model.getQuads(state, dir, random);
++            // NeoForge: all render types (null) with this block's model data.
++            List<BakedQuad> bakedQuads = model.getQuads(state, dir, random, modelData, null);
+ 
+             for (BakedQuad bq : bakedQuads) {
+                 stageBakedQuad(bq, layerName, state, world, lx, ly, lz);
