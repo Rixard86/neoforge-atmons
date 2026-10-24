@@ -7,10 +7,10 @@ index 337c28d..a615c1f 100644
          at = @At(
              value = "INVOKE",
 -            target = "Lorg/lwjgl/glfw/GLFW;glfwCreateWindow(IILjava/lang/CharSequence;JJ)J",
-+            // NeoForge creates the window through FML. With the early loading
-+            // window off (which Remix needs, see neoforge/README.md) FML's
-+            // fallback calls glfwCreateWindow with the hints current here; with
-+            // it on, the window already exists and the hints change nothing.
++            // NeoForge creates the window through FML. With FML's early loading
++            // window off, its fallback calls glfwCreateWindow with the hints
++            // current here; with it on, the window already exists and the
++            // hints change nothing.
 +            target = "Lnet/neoforged/fml/loading/ImmediateWindowHandler;setupMinecraftWindow(Ljava/util/function/IntSupplier;Ljava/util/function/IntSupplier;Ljava/util/function/Supplier;Ljava/util/function/LongSupplier;)J",
              remap = false
          )

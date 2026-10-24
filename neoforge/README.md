@@ -33,11 +33,18 @@ the water-rapids particles are left out for that reason.
   (`compat/.../mixin/*NeoForgeMixin.java`), keeping NeoForge's render-type filter.
 * `WindowMixin`'s GL 4.4 hint goes in before `ImmediateWindowHandler.setupMinecraftWindow`,
   where NeoForge creates the window.
-* FML's early loading window has to be off. Remix presents through a Vulkan
-  swapchain on Minecraft's window, and once the early window has presented to it
-  through OpenGL the driver refuses that swapchain
-  (`VK_ERROR_NATIVE_WINDOW_IN_USE_KHR`). The mod turns `earlyWindowControl` off
-  in `config/fml.toml` when it finds it on, effective from the next start.
+* Remix presents into a child window of its own over Minecraft's
+  (`RemixPresentWindow`) instead of Minecraft's window itself. Where the NVIDIA
+  driver's OpenGL holds Minecraft's window, it refuses Remix's Vulkan swapchain
+  (`VK_ERROR_NATIVE_WINDOW_IN_USE_KHR`) and Remix does not start. The child
+  window is disabled and transparent to clicks, so input still goes to
+  Minecraft, and Remix's menus take input through the runtime's own overlay
+  window. `-Drtxremix.neoforge.presentWindow=main` restores upstream's behaviour.
+* `ChunkRendererRegionMixin` retains snapshots in NeoForge's region constructor,
+  which `RenderRegionCache` calls directly. Retaining only in vanilla's
+  constructor let a finished section release snapshots that neighbouring
+  sections were still reading, which left holes and wrong blocks in the
+  terrain even with RTX off.
 * Fluids come from NeoForge's `IClientFluidTypeExtensions`, so modded fluids work.
 
 ## Building
@@ -69,7 +76,8 @@ accessible after the access transformer, and every mixin's target class,
 target method, injection point (with ordinals), `@Shadow`, `@Accessor` and
 handler signature matches the bytecode it will be applied to. With
 `RTX_INSTANCE_MODS` set it also lists other mods that inject into the same
-methods.
+methods. It warns when NeoForge calls an overload of a mixin's target method
+that never goes through the target.
 
 What it cannot check: rendering itself, the native runtime, and how other mods'
 mixins behave at runtime. That needs the game.
@@ -83,8 +91,6 @@ The *All the Mons - ATMons RTX* instance is a copy of the ATMons instance with:
   captures from, or depend on Iris.
 * Flywheel's backend set to `flywheel:off`, so Create's machines draw through
   vanilla block-entity rendering, which RTX Remix captures.
-* `earlyWindowControl = false` in `config/fml.toml` (see above). Mod loading then
-  shows no progress window until Minecraft's own loading screen.
 * No logs, backups or regenerable caches. Singleplayer worlds were copied over
   afterwards; the ATMons instance keeps its own.
 * Unlinked from the CurseForge modpack (a custom profile, like any hand-built
@@ -97,5 +103,4 @@ against its NeoForge version (`RTX_NEOFORGE`), run `verify` with
 `RTX_INSTANCE_MODS` pointing at the updated mods, and set the RTX instance up
 again from the updated one.
 
-Requirements: GeForce RTX 30-series or newer, NVIDIA driver 616.92 or newer,
-FML's early window off (`earlyWindowControl = false` in `config/fml.toml`).
+Requirements: GeForce RTX 30-series or newer, NVIDIA driver 616.92 or newer.

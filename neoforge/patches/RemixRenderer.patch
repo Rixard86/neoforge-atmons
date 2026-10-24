@@ -1,0 +1,60 @@
+diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/RemixRenderer.java b/src/main/java/com/nvidia/rtxremix/minecraft/RemixRenderer.java
+index 755900c..66d32f1 100644
+--- a/src/main/java/com/nvidia/rtxremix/minecraft/RemixRenderer.java
++++ b/src/main/java/com/nvidia/rtxremix/minecraft/RemixRenderer.java
+@@ -21,6 +21,7 @@ import com.nvidia.rtxremix.minecraft.asset.RemixTexture;
+ import com.nvidia.rtxremix.minecraft.asset.RemixTextureStore;
+ import com.nvidia.rtxremix.minecraft.benchmark.BenchmarkController;
+ import com.nvidia.rtxremix.minecraft.gl.GlInterop;
++import com.nvidia.rtxremix.neoforge.RemixPresentWindow;
+ import com.nvidia.rtxremix.minecraft.light.LightManager;
+ import com.nvidia.rtxremix.minecraft.logic.ViewDistanceFade;
+ import com.nvidia.rtxremix.minecraft.profiling.PerformanceTimer;
+@@ -107,6 +108,8 @@ public class RemixRenderer {
+     private RemixAPI remixApi;
+     private boolean initialized = false;
+     private long windowHandle;
++    /** Whether {@link #windowHandle} is the port's own present window, not Minecraft's. */
++    private boolean ownPresentWindow;
+     
+     private GlInterop interopGlVk = null;
+     
+@@ -236,6 +239,16 @@ public class RemixRenderer {
+             }
+             
+             LOGGER.info("Got window handle: 0x{}", Long.toHexString(windowHandle));
++            if (RemixPresentWindow.enabled()) {
++                // NeoForge port: a window OpenGL has used can refuse Remix's Vulkan
++                // swapchain, so Remix presents into a child window of its own.
++                long gameWindow = windowHandle;
++                windowHandle = RemixPresentWindow.create(gameWindow,
++                        client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight());
++                ownPresentWindow = true;
++                LOGGER.info("Remix presents into its own window 0x{} over 0x{}",
++                        Long.toHexString(windowHandle), Long.toHexString(gameWindow));
++            }
+             
+             Path dll = runtimeDll(FabricLoader.getInstance().getGameDir());
+             if (!Files.isRegularFile(dll)) {
+@@ -438,6 +451,9 @@ public class RemixRenderer {
+      */
+     private void releasePartialInitialization() {
+         initialized = false;
++        if (ownPresentWindow) {
++            RemixPresentWindow.hide(windowHandle);
++        }
+         try {
+             shutdown();
+         } catch (Exception e) {
+@@ -1329,6 +1345,11 @@ public class RemixRenderer {
+      * per run rather than once per frame.
+      */
+     public void presentFrameVk() {
++        if (ownPresentWindow) {
++            var window = MinecraftClient.getInstance().getWindow();
++            RemixPresentWindow.followClientSize(windowHandle,
++                    window.getFramebufferWidth(), window.getFramebufferHeight());
++        }
+         boolean failed = false;
+         try {
+             try (ProfileScope ignored = ProfileScope.begin("Interop.GLToVK")) {
