@@ -1,0 +1,63 @@
+diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/mixin/WorldRendererMixin.java b/src/main/java/com/nvidia/rtxremix/minecraft/mixin/WorldRendererMixin.java
+index 7417d63..ac4cdbb 100644
+--- a/src/main/java/com/nvidia/rtxremix/minecraft/mixin/WorldRendererMixin.java
++++ b/src/main/java/com/nvidia/rtxremix/minecraft/mixin/WorldRendererMixin.java
+@@ -412,12 +412,14 @@ public abstract class WorldRendererMixin
+             method = "render",
+             at = @At(
+                     value = "INVOKE",
+-                    target = "Lnet/minecraft/client/render/block/BlockRenderManager;renderDamage("
++                    // NeoForge: LevelRenderer calls the ModelData overload.
++                    target = "Lnet/minecraft/client/render/block/BlockRenderManager;renderBreakingTexture("
+                             + "Lnet/minecraft/block/BlockState;"
+                             + "Lnet/minecraft/util/math/BlockPos;"
+                             + "Lnet/minecraft/world/BlockRenderView;"
+                             + "Lnet/minecraft/client/util/math/MatrixStack;"
+-                            + "Lnet/minecraft/client/render/VertexConsumer;)V"
++                            + "Lnet/minecraft/client/render/VertexConsumer;"
++                            + "Lnet/neoforged/neoforge/client/model/data/ModelData;)V"
+             ))
+     private void rtxremix$captureBlockDamageInPlace(
+             BlockRenderManager blockRenderManager,
+@@ -426,15 +428,16 @@ public abstract class WorldRendererMixin
+             BlockRenderView world,
+             MatrixStack matrices,
+             VertexConsumer vertexConsumer,
++            net.neoforged.neoforge.client.model.data.ModelData modelData,
+             Operation<Void> original) {
+         RtxRemixMod mod = RtxRemixMod.getInstance();
+         RemixRenderer renderer = mod == null ? null : mod.getRenderer();
+         boolean captured = renderer != null
+                 && renderer.renderBlockDamageInPlace(pos, rtxremix$blockBreakingStage(pos),
+                         (captureMatrices, captureConsumer) -> original.call(
+-                                blockRenderManager, state, pos, world, captureMatrices, captureConsumer));
++                                blockRenderManager, state, pos, world, captureMatrices, captureConsumer, modelData));
+         if (!captured) {
+-            original.call(blockRenderManager, state, pos, world, matrices, vertexConsumer);
++            original.call(blockRenderManager, state, pos, world, matrices, vertexConsumer, modelData);
+         }
+     }
+ 
+@@ -522,15 +525,19 @@ public abstract class WorldRendererMixin
+             method = "render",
+             at = @At(
+                     value = "INVOKE",
+-                    target = "Lnet/minecraft/client/particle/ParticleManager;renderParticles(Lnet/minecraft/client/render/LightmapTextureManager;Lnet/minecraft/client/render/Camera;F)V"
++                    // NeoForge: LevelRenderer draws particles per render-type group through
++                    // its frustum-aware overload, at several call sites.
++                    target = "Lnet/minecraft/client/particle/ParticleManager;render(Lnet/minecraft/client/render/LightmapTextureManager;Lnet/minecraft/client/render/Camera;FLnet/minecraft/client/render/Frustum;Ljava/util/function/Predicate;)V"
+             ))
+     private void rtxremix$skipVanillaParticleDraw(
+             ParticleManager particleManager,
+             LightmapTextureManager lightmapTextureManager,
+             Camera camera,
+-            float tickDelta) {
++            float tickDelta,
++            Frustum frustum,
++            java.util.function.Predicate<net.minecraft.client.particle.ParticleTextureSheet> renderTypes) {
+         if (!RtxRemixMod.isRemixWorldRendering()) {
+-            particleManager.renderParticles(lightmapTextureManager, camera, tickDelta);
++            particleManager.render(lightmapTextureManager, camera, tickDelta, frustum, renderTypes);
+         }
+     }
+ 

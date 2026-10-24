@@ -438,18 +438,26 @@ public class VerifyPort {
             }
             for (MethodNode tm : matched) {
                 ourTargets.computeIfAbsent(tn.name + "." + tm.name + tm.desc, k -> new TreeSet<>()).add(simple(mixinName));
-                if (kind.equals("WrapMethod")) continue;
-                if (constantInjector && ats.isEmpty()) continue;
-                for (Object ao : ats) {
-                    AnnotationNode at = (AnnotationNode) ao;
+            }
+            if (kind.equals("WrapMethod") || (constantInjector && ats.isEmpty()) || matched.isEmpty()) continue;
+            // Mixin counts successful injections across every matched target
+            // method, so an @At only has to match in one of them.
+            for (Object ao : ats) {
+                AnnotationNode at = (AnnotationNode) ao;
+                int total = 0;
+                boolean unchecked = false;
+                for (MethodNode tm : matched) {
                     int n = countAt(mixinName, tm, at);
-                    if (n == 0 && require > 0) {
-                        error(mixinName, "@" + kind + " " + handler.name + ": @At(" + annValue(at, "value") + ", "
-                                + remap(mixinName, String.valueOf(annValue(at, "target"))) + ") matches nothing in "
-                                + tn.name + "." + tm.name + tm.desc);
-                    } else if (n < 0) {
-                        warn(mixinName, "@" + kind + " " + handler.name + ": @At(" + annValue(at, "value") + ") not checked statically");
-                    }
+                    if (n < 0) unchecked = true;
+                    else total += n;
+                }
+                if (unchecked) {
+                    warn(mixinName, "@" + kind + " " + handler.name + ": @At(" + annValue(at, "value") + ") not checked statically");
+                } else if (total == 0 && require > 0) {
+                    StringBuilder where = new StringBuilder();
+                    for (MethodNode tm : matched) where.append(' ').append(tn.name).append('.').append(tm.name).append(tm.desc);
+                    error(mixinName, "@" + kind + " " + handler.name + ": @At(" + annValue(at, "value") + ", "
+                            + remap(mixinName, String.valueOf(annValue(at, "target"))) + ") matches nothing in" + where);
                 }
             }
         }

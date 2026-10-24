@@ -10,3 +10,7 @@ accessible class net/minecraft/client/render/RenderPhase$TextureBase
 # Compile only: the Copper Beacon screen registration is skipped on NeoForge
 # (NeoForge makes this private in favour of RegisterMenuScreensEvent).
 accessible method net/minecraft/client/gui/screen/ingame/HandledScreens register (Lnet/minecraft/screen/ScreenHandlerType;Lnet/minecraft/client/gui/screen/ingame/HandledScreens$Provider;)V
+
+# RtxOptionFactory builds options from these (package-private in vanilla).
+accessible class net/minecraft/client/option/SimpleOption$IntSliderCallbacks
+accessible class net/minecraft/client/option/SimpleOption$Callbacks

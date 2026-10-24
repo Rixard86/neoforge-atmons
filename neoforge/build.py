@@ -17,6 +17,7 @@ Stages (each is cached in the work dir and can be run separately):
 
 Configuration comes from environment variables (see CONFIG below).
 """
+import glob
 import hashlib
 import json
 import os
@@ -213,15 +214,29 @@ def mixin_jar():
 #   WeightedBakedModelMixin, MultipartBakedModelMixin: NeoForge replaces the
 #     vanilla getQuads they target; ported in compat/ on NeoForge's overload.
 EXCLUDED_MIXINS = ['WallBlockMixin', 'WeightedBakedModelMixin', 'MultipartBakedModelMixin']
-UPSTREAM_MIXIN_DIR = os.path.join(REPO, 'src', 'main', 'java', 'com', 'nvidia', 'rtxremix', 'minecraft', 'mixin')
 
 
-def source_files():
-    roots = [os.path.join(REPO, 'src', 'main', 'java'),
+def patched_upstream_sources():
+    """src/main/java with neoforge/patches applied (NeoForge-only changes to
+    upstream files, kept as patches so the tree itself stays upstream)."""
+    root = W('patched')
+    if os.path.exists(root):
+        shutil.rmtree(root)
+    shutil.copytree(os.path.join(REPO, 'src', 'main', 'java'), os.path.join(root, 'src', 'main', 'java'))
+    patches = sorted(glob.glob(os.path.join(HERE, 'patches', '*.patch')))
+    for p in patches:
+        run(['git', 'apply', '--whitespace=nowarn', '-p1', p], cwd=root)
+    log(f'applied {len(patches)} NeoForge patches')
+    return os.path.join(root, 'src', 'main', 'java')
+
+
+def source_files(upstream_java):
+    roots = [upstream_java,
              os.path.join(REPO, 'rtxremix-java', 'src'),
              os.path.join(HERE, 'compat', 'java'),
              os.path.join(HERE, 'compat', 'compileonly')]
-    excluded = {os.path.join(UPSTREAM_MIXIN_DIR, m + '.java') for m in EXCLUDED_MIXINS}
+    mixin_dir = os.path.join(upstream_java, 'com', 'nvidia', 'rtxremix', 'minecraft', 'mixin')
+    excluded = {os.path.join(mixin_dir, m + '.java') for m in EXCLUDED_MIXINS}
     out = []
     for r in roots:
         for dp, _, fs in os.walk(r):
@@ -255,7 +270,7 @@ def stage_compile():
     if os.path.exists(out):
         shutil.rmtree(out)
     os.makedirs(out)
-    srcs = source_files()
+    srcs = source_files(patched_upstream_sources())
     with open(W('sources.txt'), 'w') as f:
         f.write('\n'.join(srcs) + '\n')
     cp = compile_classpath()

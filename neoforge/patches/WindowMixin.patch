@@ -1,0 +1,17 @@
+diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/mixin/WindowMixin.java b/src/main/java/com/nvidia/rtxremix/minecraft/mixin/WindowMixin.java
+index 337c28d..c7d4b18 100644
+--- a/src/main/java/com/nvidia/rtxremix/minecraft/mixin/WindowMixin.java
++++ b/src/main/java/com/nvidia/rtxremix/minecraft/mixin/WindowMixin.java
+@@ -34,7 +34,11 @@ public abstract class WindowMixin {
+             value = "INVOKE",
+             target = "Lorg/lwjgl/glfw/GLFW;glfwCreateWindow(IILjava/lang/CharSequence;JJ)J",
+             remap = false
+-        )
++        ),
++        // NeoForge: FML's early loading window owns window creation and takes the
++        // highest core profile the driver offers (4.6 on RTX cards), so Window's own
++        // glfwCreateWindow call is gone and there is nothing to inject into.
++        require = 0
+     )
+     private void rtxremix$requireOpenGl44(CallbackInfo ci) {
+         // Core-profile 4.4: the GL interop imports Remix's images and semaphores
