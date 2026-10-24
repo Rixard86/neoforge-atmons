@@ -129,13 +129,6 @@ def stage_prepare():
     os.makedirs(W(), exist_ok=True)
     import mappings as M
 
-    mojtxt = lib('net', 'minecraft', 'client', CONFIG['NEOFORM'], f'client-{CONFIG["NEOFORM"]}-mappings.txt')
-    mapdir = W('map')
-    if not fresh(os.path.join(mapdir, 'yarn2moj.tsrg'), mojtxt, CONFIG['INTERMEDIARY'],
-                 os.path.join(HERE, 'tools', 'mappings.py')):
-        sys.argv = ['mappings.py', mojtxt, CONFIG['INTERMEDIARY'], CONFIG['YARN'], mapdir]
-        M.main()
-
     # Minecraft with NeoForge's binary patches applied, Mojang names.
     srg = lib('net', 'minecraft', 'client', CONFIG['NEOFORM'], f'client-{CONFIG["NEOFORM"]}-srg.jar')
     patched = lib('net', 'neoforged', 'neoforge', CONFIG['NEOFORGE'], f'neoforge-{CONFIG["NEOFORGE"]}-client.jar')
@@ -155,6 +148,19 @@ def stage_prepare():
                     if n.endswith('.class') and n not in patched_names:
                         out.writestr(n, sz.read(n))
         os.replace(mc_moj + '.tmp', mc_moj)
+
+    mojtxt = lib('net', 'minecraft', 'client', CONFIG['NEOFORM'], f'client-{CONFIG["NEOFORM"]}-mappings.txt')
+    mapdir = W('map')
+    if not fresh(os.path.join(mapdir, 'moj2yarn-declared.tsrg'), mojtxt, CONFIG['INTERMEDIARY'],
+                 os.path.join(HERE, 'tools', 'mappings.py')):
+        sys.argv = ['mappings.py', mojtxt, CONFIG['INTERMEDIARY'], CONFIG['YARN'], mapdir]
+        M.main()
+
+    prop_tool = os.path.join(HERE, 'tools', 'java', 'PropagateMappings.java')
+    if not fresh(os.path.join(mapdir, 'yarn2moj.tsrg'), os.path.join(mapdir, 'moj2yarn-declared.tsrg'), mc_moj, prop_tool):
+        run([java(), '-Xmx1500m', '-cp', os.pathsep.join(asm_jars()), prop_tool,
+             os.path.join(mapdir, 'moj2yarn-declared.tsrg'), mc_moj,
+             os.path.join(mapdir, 'moj2yarn.tsrg'), os.path.join(mapdir, 'yarn2moj.tsrg')])
 
     libs = game_libraries()
     with open(W('libraries.txt'), 'w') as f:

@@ -10,8 +10,10 @@ available offline into one direct table:
 
 and writes TSRG v1 files in both directions:
 
-    moj2yarn.tsrg   left = mojmap, right = yarn   (remaps the game jars for compiling)
-    yarn2moj.tsrg   left = yarn,   right = mojmap (remaps our compiled jar back; mixin AP input)
+    moj2yarn-declared.tsrg   left = mojmap, right = yarn, members as declared
+
+tools/java/PropagateMappings.java then propagates names through the class
+hierarchy (overrides must share a name) and writes moj2yarn.tsrg/yarn2moj.tsrg.
 
 Usage: mappings.py <mojang-mappings.txt> <intermediary.tiny> <yarn-mappings-dir> <out-dir>
 """
@@ -188,10 +190,11 @@ def main():
     fields = {}  # mojOwner -> list[(moj, yarn)]
     for off_owner, off_name, moj_name, _ in pg_fields:
         inter = int_fields.get((off_owner, off_name))
-        if inter is None:
-            continue
         int_owner = off2int.get(off_owner, off_owner)
-        yname = y_fields.get((int_owner, inter), inter)
+        if inter is None:
+            yname = off_name  # not obfuscated: every namespace keeps the official name
+        else:
+            yname = y_fields.get((int_owner, inter), inter)
         fields.setdefault(off2moj[off_owner], []).append((moj_name, yname))
 
     methods = {}  # mojOwner -> list[(mojName, mojDesc, yarnName, yarnDesc)]
@@ -201,12 +204,13 @@ def main():
             continue
         off_desc = moj_desc_to_off(moj_desc)
         inter = int_methods.get((off_owner, off_name, off_desc))
+        int_owner = off2int.get(off_owner, off_owner)
         if inter is None:
             n_missing += 1
-            continue
-        int_owner = off2int.get(off_owner, off_owner)
-        int_desc = off_desc_to_int(off_desc)
-        yname = y_methods.get((int_owner, inter, int_desc), inter)
+            yname = off_name  # not obfuscated (or inherited from a library type)
+        else:
+            int_desc = off_desc_to_int(off_desc)
+            yname = y_methods.get((int_owner, inter, int_desc), inter)
         ydesc = remap_desc(moj_desc, yarn_of_moj)
         methods.setdefault(off2moj[off_owner], []).append((moj_name, moj_desc, yname, ydesc))
         n_meth += 1
@@ -224,8 +228,9 @@ def main():
                 for mn, md, yn, yd in methods.get(moj, ()):
                     f.write(f'\t{mn} {md} {yn}\n' if forward else f'\t{yn} {yd} {mn}\n')
 
-    write(os.path.join(out, 'moj2yarn.tsrg'), True)
-    write(os.path.join(out, 'yarn2moj.tsrg'), False)
+    # Declared members only; PropagateMappings adds inherited/overriding
+    # members from the class hierarchy and writes the final pair of files.
+    write(os.path.join(out, 'moj2yarn-declared.tsrg'), True)
     print(f'classes={len(classes)} fields={sum(map(len, fields.values()))} '
           f'methods={n_meth} (no intermediary: {n_missing})')
 
