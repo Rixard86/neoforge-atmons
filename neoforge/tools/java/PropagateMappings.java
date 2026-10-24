@@ -28,6 +28,8 @@ public class PropagateMappings {
     static final Map<String, Map<String, String>> fieldMap = new HashMap<>();   // owner -> name -> target
     static final Map<String, Map<String, String>> methodMap = new HashMap<>();  // owner -> name+desc -> target
     static final Map<String, Info> infos = new HashMap<>();
+    static final Map<String, Map<String, String>> fieldAliases = new HashMap<>();  // owner -> moj name -> original target
+    static final Map<String, Map<String, String>> methodAliases = new HashMap<>(); // owner -> moj name+desc -> original target
 
     public static void main(String[] args) throws IOException {
         // Optional fifth argument: Mojang-name proposals for members Yarn's
@@ -81,6 +83,7 @@ public class PropagateMappings {
                     if ((constant || component) && proposals.contains(i.name() + " " + f[0]) && fm.containsKey(f[0])) {
                         String before = fm.put(f[0], f[0]);
                         proposedFrom.put(i.name() + " " + f[0], before);
+                        fieldAliases.computeIfAbsent(i.name(), k -> new HashMap<>()).put(f[0], before);
                         applied++;
                     }
                 }
@@ -90,6 +93,7 @@ public class PropagateMappings {
                 for (String[] f : i.fields()) {
                     String k = i.name() + " " + f[0];
                     if (proposedFrom.containsKey(k) && count.get(fm.get(f[0])) > 1) {
+                        fieldAliases.getOrDefault(i.name(), new HashMap<>()).remove(f[0]);
                         fm.put(f[0], proposedFrom.remove(k));
                         applied--;
                     }
@@ -145,6 +149,7 @@ public class PropagateMappings {
                 String b = bridgeNames.get(m[0] + "/" + argCount(m[1]));
                 if (b != null && t != null && t.matches("method_\\d+")) {
                     mm.put(key, b);
+                    methodAliases.computeIfAbsent(i.name(), k -> new HashMap<>()).put(key, t);
                     specialized++;
                 }
             }
@@ -208,6 +213,15 @@ public class PropagateMappings {
                     fwd.println("\t" + e.getKey() + " " + e.getValue());
                     rev.println("\t" + e.getValue() + " " + e.getKey());
                     nf++;
+                }
+                // Intermediary-style names Yarn's own jar would still use (members
+                // its build names by proposal or specialization): accepted too.
+                for (Map.Entry<String, String> e : fieldAliases.getOrDefault(c, Map.of()).entrySet()) {
+                    rev.println("\t" + e.getValue() + " " + e.getKey());
+                }
+                for (Map.Entry<String, String> e : methodAliases.getOrDefault(c, Map.of()).entrySet()) {
+                    int paren = e.getKey().indexOf('(');
+                    rev.println("\t" + e.getValue() + " " + mapDesc(e.getKey().substring(paren)) + " " + e.getKey().substring(0, paren));
                 }
                 for (Map.Entry<String, String> e : fullMethods.getOrDefault(c, Map.of()).entrySet()) {
                     String key = e.getKey();
