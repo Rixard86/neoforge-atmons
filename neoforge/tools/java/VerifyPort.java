@@ -438,6 +438,7 @@ public class VerifyPort {
             }
             for (MethodNode tm : matched) {
                 ourTargets.computeIfAbsent(tn.name + "." + tm.name + tm.desc, k -> new TreeSet<>()).add(simple(mixinName));
+                checkHandler(mixinName, kind, handler, tn, tm, ats);
             }
             if (kind.equals("WrapMethod") || (constantInjector && ats.isEmpty()) || matched.isEmpty()) continue;
             // Mixin counts successful injections across every matched target
@@ -459,6 +460,166 @@ public class VerifyPort {
                     error(mixinName, "@" + kind + " " + handler.name + ": @At(" + annValue(at, "value") + ", "
                             + remap(mixinName, String.valueOf(annValue(at, "target"))) + ") matches nothing in" + where);
                 }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ handler signatures
+
+    static final String CI = "Lorg/spongepowered/asm/mixin/injection/callback/CallbackInfo;";
+    static final String CIR = "Lorg/spongepowered/asm/mixin/injection/callback/CallbackInfoReturnable;";
+    static final String OPERATION = "Lcom/llamalad7/mixinextras/injector/wrapoperation/Operation;";
+
+    /** Types of a handler's parameters, minus trailing MixinExtras @Local/@Share captures. */
+    static List<Type> handlerParams(MethodNode h) {
+        Type[] args = Type.getArgumentTypes(h.desc);
+        int n = args.length;
+        while (n > 0 && h.invisibleParameterAnnotations != null && h.invisibleParameterAnnotations.length > n - 1
+                && hasLocal(h.invisibleParameterAnnotations[n - 1])) n--;
+        while (n > 0 && h.visibleParameterAnnotations != null && h.visibleParameterAnnotations.length > n - 1
+                && hasLocal(h.visibleParameterAnnotations[n - 1])) n--;
+        return new ArrayList<>(Arrays.asList(args).subList(0, n));
+    }
+
+    static boolean hasLocal(List<AnnotationNode> anns) {
+        if (anns == null) return false;
+        for (AnnotationNode a : anns) {
+            if (a.desc.startsWith("Lcom/llamalad7/mixinextras/sugar/")) return true;
+        }
+        return false;
+    }
+
+    static boolean assignable(Type from, Type to) {
+        if (from.equals(to)) return true;
+        if (from.getSort() != Type.OBJECT || to.getSort() != Type.OBJECT) {
+            return from.getSort() >= Type.ARRAY && to.getDescriptor().equals("Ljava/lang/Object;");
+        }
+        if (to.getInternalName().equals("java/lang/Object")) return true;
+        Deque<String> q = new ArrayDeque<>(List.of(from.getInternalName()));
+        Set<String> seen = new HashSet<>();
+        while (!q.isEmpty()) {
+            String c = q.poll();
+            if (!seen.add(c)) continue;
+            if (c.equals(to.getInternalName())) return true;
+            ClassNode n = node(c);
+            if (n == null) continue;
+            if (n.superName != null) q.add(n.superName);
+            q.addAll(n.interfaces);
+        }
+        return false;
+    }
+
+    static void sigError(String mixin, String kind, MethodNode h, String why) {
+        error(mixin, "@" + kind + " " + h.name + h.desc + ": " + why);
+    }
+
+    static void checkHandler(String mixin, String kind, MethodNode h, ClassNode tn, MethodNode tm, List<Object> ats) {
+        List<Type> hp = handlerParams(h);
+        Type[] targetArgs = Type.getArgumentTypes(tm.desc);
+        Type targetRet = Type.getReturnType(tm.desc);
+        boolean targetStatic = (tm.access & Opcodes.ACC_STATIC) != 0;
+        switch (kind) {
+            case "Inject" -> {
+                int ci = -1;
+                for (int i = 0; i < hp.size(); i++) {
+                    String d = hp.get(i).getDescriptor();
+                    if (d.equals(CI) || d.equals(CIR)) { ci = i; break; }
+                }
+                if (ci < 0) { sigError(mixin, kind, h, "no CallbackInfo parameter"); return; }
+                if (targetRet.getSort() != Type.VOID && !tm.name.equals("<init>")
+                        && !hp.get(ci).getDescriptor().equals(CIR)) {
+                    sigError(mixin, kind, h, "target returns " + targetRet + ", needs CallbackInfoReturnable");
+                }
+                if (ci != 0 && ci != targetArgs.length) {
+                    sigError(mixin, kind, h, "takes " + ci + " target arguments, target " + tn.name + "." + tm.name + tm.desc
+                            + " has " + targetArgs.length);
+                    return;
+                }
+                for (int i = 0; i < ci; i++) {
+                    if (!hp.get(i).equals(targetArgs[i])) {
+                        sigError(mixin, kind, h, "argument " + i + " is " + hp.get(i) + ", target has " + targetArgs[i]
+                                + " in " + tn.name + "." + tm.name + tm.desc);
+                        return;
+                    }
+                }
+            }
+            case "ModifyReturnValue" -> {
+                if (hp.isEmpty() || !hp.get(0).equals(targetRet) || !Type.getReturnType(h.desc).equals(targetRet))
+                    sigError(mixin, kind, h, "target returns " + targetRet);
+            }
+            case "Redirect", "WrapOperation", "ModifyExpressionValue", "WrapWithCondition" -> {
+                if (ats.isEmpty()) return;
+                AnnotationNode at = (AnnotationNode) ats.get(0);
+                String value = (String) annValue(at, "value");
+                String target = (String) annValue(at, "target");
+                if (target == null) return;
+                target = remap(mixin, target);
+                List<Type> call = new ArrayList<>();
+                Type callRet;
+                if (value.startsWith("INVOKE")) {
+                    Ref r = parseRef(target);
+                    if (r.desc() == null || r.owner() == null) return;
+                    Found f = findMethod(r.owner(), r.name(), r.desc());
+                    boolean isStatic = f != null && (((MethodNode) f.member()).access & Opcodes.ACC_STATIC) != 0;
+                    if (!isStatic) call.add(Type.getObjectType(r.owner()));
+                    call.addAll(Arrays.asList(Type.getArgumentTypes(r.desc())));
+                    callRet = Type.getReturnType(r.desc());
+                } else if (value.equals("FIELD")) {
+                    Ref r = parseRef(target);
+                    if (r.desc() == null || r.owner() == null) return;
+                    Found f = findField(r.owner(), r.name(), r.desc());
+                    boolean isStatic = f != null && (((FieldNode) f.member()).access & Opcodes.ACC_STATIC) != 0;
+                    Object opObj = annValue(at, "opcode");
+                    int opcode = opObj == null ? -1 : (Integer) opObj;
+                    if (!isStatic) call.add(Type.getObjectType(r.owner()));
+                    if (opcode == Opcodes.PUTFIELD || opcode == Opcodes.PUTSTATIC) {
+                        call.add(Type.getType(r.desc()));
+                        callRet = Type.VOID_TYPE;
+                    } else {
+                        callRet = Type.getType(r.desc());
+                    }
+                } else if (value.equals("NEW")) {
+                    String t = target.startsWith("L") && target.endsWith(";") ? target.substring(1, target.length() - 1) : target;
+                    callRet = Type.getObjectType(t.contains("(") ? parseRef(t).owner() : t);
+                    if (!kind.equals("ModifyExpressionValue")) return; // constructor args need the <init> desc
+                } else {
+                    return;
+                }
+                Type hr = Type.getReturnType(h.desc);
+                if (kind.equals("ModifyExpressionValue")) {
+                    if (hp.isEmpty() || !assignable(callRet, hp.get(0)) || !assignable(hr, callRet))
+                        sigError(mixin, kind, h, "expression type is " + callRet);
+                    return;
+                }
+                if (kind.equals("WrapOperation") || kind.equals("WrapWithCondition")) {
+                    int op = -1;
+                    for (int i = 0; i < hp.size(); i++) if (hp.get(i).getDescriptor().equals(OPERATION)) op = i;
+                    List<Type> args = op >= 0 ? hp.subList(0, op) : hp;
+                    if (kind.equals("WrapOperation") && op < 0) { sigError(mixin, kind, h, "no Operation parameter"); return; }
+                    checkCallArgs(mixin, kind, h, call, args, target);
+                    if (kind.equals("WrapOperation") && !assignable(hr, callRet) && !(hr.equals(callRet)))
+                        sigError(mixin, kind, h, "returns " + hr + ", wrapped call returns " + callRet);
+                    return;
+                }
+                // Redirect: may also capture the target method's arguments after the call's.
+                List<Type> args = hp.size() > call.size() ? hp.subList(0, call.size()) : hp;
+                checkCallArgs(mixin, kind, h, call, args, target);
+                if (!assignable(hr, callRet) && !hr.equals(callRet))
+                    sigError(mixin, kind, h, "returns " + hr + ", redirected call returns " + callRet);
+            }
+            default -> { }
+        }
+    }
+
+    static void checkCallArgs(String mixin, String kind, MethodNode h, List<Type> call, List<Type> args, String target) {
+        if (args.size() != call.size()) {
+            sigError(mixin, kind, h, "takes " + args.size() + " call arguments, " + target + " has " + call.size());
+            return;
+        }
+        for (int i = 0; i < call.size(); i++) {
+            if (!assignable(call.get(i), args.get(i)) && !call.get(i).equals(args.get(i))) {
+                sigError(mixin, kind, h, "call argument " + i + " is " + call.get(i) + ", handler takes " + args.get(i));
+                return;
             }
         }
     }
