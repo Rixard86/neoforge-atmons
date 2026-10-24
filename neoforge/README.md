@@ -46,7 +46,9 @@ native RTX Remix runtime (not built here). Linux shell, Python 3 and JDK 21:
 export RTX_INSTALL=~/curseforge/minecraft/Install       # CurseForge's Install folder
 export RTX_RELEASE_JAR=.../rtx-remix-renderer-0.1.0-...jar  # from NVIDIA's v0.1.0 release
 export RTX_JDK=... RTX_YARN=.../yarn/mappings RTX_INTERMEDIARY=.../1.21.1.tiny
+export RTX_NEOFORGE=21.1.249 RTX_WORK=~/rtx/work      # defaults shown
 python3 neoforge/build.py prepare compile package verify
+# -> $RTX_WORK/dist/rtx-remix-renderer-<version>-neoforge.<n>.jar
 ```
 
 `prepare` builds a Yarn-named copy of NeoForge's Minecraft and NeoForge, so the
@@ -77,6 +79,15 @@ The *All the Mons - ATMons RTX* instance is a copy of the ATMons instance with:
 * Flywheel's backend set to `flywheel:off`, so Create's machines draw through
   vanilla block-entity rendering, which RTX Remix captures.
 * No singleplayer worlds, logs, backups or regenerable caches.
+* Unlinked from the CurseForge modpack (a custom profile, like any hand-built
+  instance), so CurseForge never offers an ATMons update for it. A pack update
+  would replace the mod list and turn Sodium and Iris back on. The linked
+  profile is kept as `minecraftinstance.modpack-link-backup.json`.
+
+To move to a new ATMons version: update the normal instance, rebuild the jar
+against its NeoForge version (`RTX_NEOFORGE`), run `verify` with
+`RTX_INSTANCE_MODS` pointing at the updated mods, and set the RTX instance up
+again from the updated one.
 
 Requirements: GeForce RTX 30-series or newer, NVIDIA driver 616.92 or newer,
 FML's early window left on (`earlyWindowControl = true` in `config/fml.toml`).

@@ -1,3 +1,53 @@
+# RTX Remix for Minecraft — NeoForge port for All the Mons
+
+> **This is an unofficial fork.** It ports NVIDIA's
+> [RTX Remix for Minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft)
+> (a Fabric mod) to **NeoForge 21.1** for the
+> [All the Mons - ATMons](https://www.curseforge.com/projects/1356598)
+> modpack on Minecraft 1.21.1. It is not made, endorsed or supported by NVIDIA,
+> Mojang or the ATMons team. Report problems with the port here, not upstream.
+
+**Client only.** The NeoForge build adds no blocks, items, particles or network
+payloads, so you can join an ordinary ATMons server with it and other players
+are not affected. Left out compared with the Fabric mod: the Copper Beacon and
+the water-rapids particles, both of which would need the server to have the mod.
+
+| | |
+|---|---|
+| Status | Builds and passes static verification against NeoForge 21.1.249; not yet tested in game |
+| Needs | GeForce RTX 30-series or newer, NVIDIA driver 616.92+, Windows x64 |
+| Turn off in the instance | Sodium, Iris, ImmediatelyFast, Colorwheel (+ Patcher), Euphoria Patcher |
+| Set in the instance | Flywheel `backend = "flywheel:off"`, so Create's machines are path traced |
+| Details | [neoforge/README.md](neoforge/README.md): layout, NeoForge changes, build, verification |
+
+### Using it
+
+There is no published jar yet; build it with `neoforge/build.py` (see
+[neoforge/README.md](neoforge/README.md#building)). Then, in a **copy** of your
+ATMons instance (keep the original for normal play):
+
+1. Put the built jar in `mods/`.
+2. Disable the mods listed above and set the Flywheel backend.
+3. Detach the copy from the modpack, so a pack update cannot undo 1 and 2.
+4. Start the game; the first launch unpacks about 1 GB of runtime files.
+5. Type `/rtx status` in chat; *Renderer Initialized* and *SDK Available* should
+   both be `true`. `F8` toggles path tracing.
+
+### How this repository is organised
+
+`main` carries NVIDIA's history unchanged, plus `neoforge/`. NeoForge-specific
+edits to upstream files are patches in `neoforge/patches/`, applied at build
+time, so new upstream commits merge cleanly:
+
+```sh
+git remote add upstream https://github.com/NVIDIAGameWorks/rtx-remix-minecraft.git
+git fetch upstream && git merge upstream/main
+```
+
+Everything below this line is NVIDIA's original README for the Fabric mod.
+
+---
+
 # RTX Remix for Minecraft
 
 Play Minecraft Java Edition 1.21.1 with real-time path tracing on a GeForce RTX
