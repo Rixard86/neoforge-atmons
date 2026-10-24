@@ -1,0 +1,21 @@
+diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/terrain/BlockMeshBuilder.java b/src/main/java/com/nvidia/rtxremix/minecraft/terrain/BlockMeshBuilder.java
+index 6e9eeb4..4356e46 100644
+--- a/src/main/java/com/nvidia/rtxremix/minecraft/terrain/BlockMeshBuilder.java
++++ b/src/main/java/com/nvidia/rtxremix/minecraft/terrain/BlockMeshBuilder.java
+@@ -383,12 +383,15 @@ public final class BlockMeshBuilder {
+ 
+     private RemixMaterial resolveMaterial(String bucketKey, BlockTextureManager tex) {
+         boolean isSss = bucketKey.endsWith("_sss");
+-        String baseName = isSss ? bucketKey.substring(0, bucketKey.length() - 4) : bucketKey;
++        // NeoForge port: "_pbr" buckets hold quads remapped into the compact PBR atlas.
++        boolean isPbr = !isSss && bucketKey.endsWith("_pbr");
++        String baseName = isSss || isPbr ? bucketKey.substring(0, bucketKey.length() - 4) : bucketKey;
+ 
+         if ("water".equals(baseName)) return tex.getWaterSurfaceMaterial();
+ 
+         int layerType = BlockTextureManager.layerType(baseName);
+         return isSss ? tex.getAtlasMaterialSSS(layerType)
++                     : isPbr ? tex.getPbrAtlasMaterial(layerType)
+                      : tex.getAtlasMaterial(layerType);
+     }
+ 

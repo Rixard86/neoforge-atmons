@@ -1,8 +1,46 @@
 diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/texture/BlockTextureManager.java b/src/main/java/com/nvidia/rtxremix/minecraft/texture/BlockTextureManager.java
-index a8488c8..5a9f7ea 100644
+index a8488c8..8b9e6ad 100644
 --- a/src/main/java/com/nvidia/rtxremix/minecraft/texture/BlockTextureManager.java
 +++ b/src/main/java/com/nvidia/rtxremix/minecraft/texture/BlockTextureManager.java
-@@ -285,8 +285,9 @@ public class BlockTextureManager {
+@@ -64,6 +64,8 @@ public class BlockTextureManager {
+     public static final InstanceInfoBlendEXT ATLAS_TRANSLUCENT_BLEND =
+             InstanceInfoBlendEXT.textureTimesVertexColor();
+     private static final float POM_DISPLACE_IN = 0.25f;
++    /** Roughness of a sprite without LabPBR data, as the roughness map's default fill. */
++    private static final int DEFAULT_ROUGHNESS_BYTE = 180;
+     private static final float COMMON_GLASS_IOR = 1.52f;
+     private static final float THIN_SSS_MEASUREMENT_DISTANCE = 0.75f;
+     private static final int THIN_SSS_DEFAULT_THICKNESS = Math.round(THIN_SSS_MEASUREMENT_DISTANCE * 255.0f);
+@@ -90,6 +92,11 @@ public class BlockTextureManager {
+     private RemixTexture atlasSssTex;
+     private RemixTexture atlasSssAlbedoTex;
+     private int atlasW, atlasH;
++    // NeoForge port: the compact atlas of sprites with LabPBR data (see buildAtlasMaterials).
++    private int pbrW, pbrH;
++    private RemixTexture pbrAlbedo, pbrNormal, pbrHeight, pbrRoughness, pbrMetallic, pbrEmissive,
++            pbrSss, pbrSssAlbedo;
++    private final RemixMaterial[] pbrMaterials = new RemixMaterial[LAYER_COUNT];
+     private final List<SpriteEntry> sprites = new ArrayList<>();
+     private final Map<Identifier, SpriteEntry> spriteById = new HashMap<>();
+     private final Map<Long, RemixMaterial> materials = new HashMap<>();
+@@ -168,6 +175,16 @@ public class BlockTextureManager {
+         RemixTexture albedo, normal, roughness, metallic, height, emissive, sss, sssAlbedo;
+         public boolean hasPBR, hasSSS;
+         float[] lightColor;
++        /** NeoForge port: whether this sprite's quads sample the compact PBR atlas. */
++        public boolean inPbrAtlas;
++        int pbrX, pbrY;
++        float pu0, pv0, puScale, pvScale;
++
++        /** Maps a main-atlas U inside this sprite to the PBR atlas. */
++        public float pbrU(float u) { return pu0 + (u - u0) * puScale; }
++
++        /** Maps a main-atlas V inside this sprite to the PBR atlas. */
++        public float pbrV(float v) { return pv0 + (v - v0) * pvScale; }
+ 
+         SpriteEntry(int i, Identifier id, Sprite s) {
+             this.index = i; this.id = id;
+@@ -285,8 +302,9 @@ public class BlockTextureManager {
              return;
          }
          albedoRGBA = stitchAtlasRGBA(atlas);
@@ -14,7 +52,7 @@ index a8488c8..5a9f7ea 100644
          LOGGER.info("Atlas {}x{} (stitched from {} sprites)",
                  atlasW, atlasH, ((SpriteAtlasAccessor) atlas).getSprites().size());
      }
-@@ -312,13 +313,12 @@ public class BlockTextureManager {
+@@ -312,13 +330,12 @@ public class BlockTextureManager {
              NativeImage sssI = labPBRVariants.loadVariant(e.getKey(), "_sss");
              try {
                  if (nI != null) LabPBRConverter.applyAO(alb, se.pixW, nI, 0, 0, se.pixW, se.pixH);
@@ -30,7 +68,463 @@ index a8488c8..5a9f7ea 100644
                  if (se.lightColor != null) {
                      spriteLightColors.put(e.getKey().toString(), se.lightColor);
                  } else if (luminance > 0) {
-@@ -970,39 +970,22 @@ public class BlockTextureManager {
+@@ -407,56 +424,85 @@ public class BlockTextureManager {
+     //  Atlas-level PBR textures & materials
+     // ====================================================================
+ 
++    /**
++     * NeoForge port: only the albedo and the emissive map stay atlas-sized. The
++     * other channels exist for the few sprites that carry LabPBR data, so those
++     * sprites are copied into a compact atlas of their own ({@link #packPbrAtlas})
++     * and terrain samples it through remapped UVs. ATMons has ~80k sprites and
++     * ~2% with PBR, so atlas-sized normal, height, roughness, metallic and SSS
++     * maps were nearly all default fill, and with Remix's mip chains they cost
++     * over 2 GB at an 8192 square atlas. Entities and particles keep the main
++     * atlas: albedo and emission, with constant roughness and no metal.
++     */
+     private void buildAtlasMaterials(RemixAPI api, LabPBRConverter.VariantCache labPBRVariants) {
+-        int pixels = atlasW * atlasH;
++        List<SpriteEntry> pbrSprites = new ArrayList<>();
++        for (SpriteEntry se : sprites) {
++            se.inPbrAtlas = false;
++            if (se.hasPBR || se.hasSSS) {
++                pbrSprites.add(se);
++            }
++        }
++        packPbrAtlas(pbrSprites);
+ 
+-        byte[] normalAtlas    = new byte[pixels * 4];
+-        byte[] heightAtlas    = new byte[pixels];
+-        byte[] roughnessAtlas = new byte[pixels];
+-        byte[] metallicAtlas  = new byte[pixels];
+-        byte[] emissiveAtlas  = new byte[pixels * 4];
+-        byte[] sssThicknessAtlas = new byte[pixels * 4];
+-        byte[] sssAlbedoAtlas = LabPBRConverter.createSingleScatteringAlbedoFallback(albedoRGBA);
+-
+-        Arrays.fill(heightAtlas, (byte) 255);
+-        Arrays.fill(roughnessAtlas, (byte) 180);
+-        fillRGBA(sssThicknessAtlas, THIN_SSS_DEFAULT_THICKNESS, THIN_SSS_DEFAULT_THICKNESS,
++        int pixels = atlasW * atlasH;
++        int pbrPixels = pbrW * pbrH;
++        byte[] emissiveAtlas = new byte[pixels * 4];
++        byte[] pAlbedo    = new byte[pbrPixels * 4];
++        byte[] pNormal    = new byte[pbrPixels * 4];
++        byte[] pHeight    = new byte[pbrPixels];
++        byte[] pRoughness = new byte[pbrPixels];
++        byte[] pMetallic  = new byte[pbrPixels];
++        byte[] pEmissive  = new byte[pbrPixels * 4];
++        byte[] pSss       = new byte[pbrPixels * 4];
++        byte[] pSssAlbedo = new byte[pbrPixels * 4];
++
++        Arrays.fill(pHeight, (byte) 255);
++        Arrays.fill(pRoughness, (byte) DEFAULT_ROUGHNESS_BYTE);
++        fillRGBA(pSss, THIN_SSS_DEFAULT_THICKNESS, THIN_SSS_DEFAULT_THICKNESS,
+                 THIN_SSS_DEFAULT_THICKNESS, 255);
+-        for (int i = 0; i < pixels; i++) {
+-            int idx4 = i * 4;
+-            normalAtlas[idx4]     = (byte) 128;
+-            normalAtlas[idx4 + 1] = (byte) 128;
+-            normalAtlas[idx4 + 2] = (byte) 255;
+-            normalAtlas[idx4 + 3] = (byte) 255;
+-        }
++        fillRGBA(pNormal, 128, 128, 255, 255);
+ 
+         boolean hasAnyNormal = false, hasAnyHeight = false, hasAnyEmissive = false, hasAnySSS = false;
+ 
+         for (SpriteEntry se : sprites) {
++            if (!se.inPbrAtlas) {
++                // Sprites without LabPBR data can still glow through a built-in mask.
++                BuiltinEmission.Mask mask = BuiltinEmission.mask(se.id);
++                if (mask != null) {
++                    LabPBRConverter.blitEmissiveMask(emissiveAtlas, atlasW, albedoRGBA,
++                            se.pixX, se.pixY, se.pixW, se.pixH, mask);
++                    hasAnyEmissive = true;
++                }
++                continue;
++            }
+             NativeImage nI = labPBRVariants.loadVariant(se.id, "_n");
+             NativeImage sI = labPBRVariants.loadVariant(se.id, "_s");
+             NativeImage sssI = labPBRVariants.loadVariant(se.id, "_sss");
+             try {
+                 if (nI != null) {
+-                    LabPBRConverter.blitNormal(normalAtlas, atlasW, nI, se.pixX, se.pixY, se.pixW, se.pixH);
+-                    LabPBRConverter.blitHeight(heightAtlas, atlasW, nI, se.pixX, se.pixY, se.pixW, se.pixH);
+                     LabPBRConverter.applyAO(albedoRGBA, atlasW, nI, se.pixX, se.pixY, se.pixW, se.pixH);
+-                    LabPBRConverter.applyAO(sssAlbedoAtlas, atlasW, nI, se.pixX, se.pixY, se.pixW, se.pixH);
++                    LabPBRConverter.blitNormal(pNormal, pbrW, nI, se.pbrX, se.pbrY, se.pixW, se.pixH);
++                    LabPBRConverter.blitHeight(pHeight, pbrW, nI, se.pbrX, se.pbrY, se.pixW, se.pixH);
+                     hasAnyNormal = true;
+                     hasAnyHeight = true;
+                 }
++                // The single-scattering albedo falls back to the AO-applied albedo.
++                copyRegion(albedoRGBA, atlasW, se.pixX, se.pixY, pAlbedo, pbrW, se.pbrX, se.pbrY,
++                        se.pixW, se.pixH, 4);
++                copyRegion(albedoRGBA, atlasW, se.pixX, se.pixY, pSssAlbedo, pbrW, se.pbrX, se.pbrY,
++                        se.pixW, se.pixH, 4);
+                 if (sI != null) {
+-                    LabPBRConverter.blitRoughness(roughnessAtlas, atlasW, sI, se.pixX, se.pixY, se.pixW, se.pixH);
+-                    LabPBRConverter.blitMetallic(metallicAtlas, atlasW, sI, se.pixX, se.pixY, se.pixW, se.pixH);
++                    LabPBRConverter.blitRoughness(pRoughness, pbrW, sI, se.pbrX, se.pbrY, se.pixW, se.pixH);
++                    LabPBRConverter.blitMetallic(pMetallic, pbrW, sI, se.pbrX, se.pbrY, se.pixW, se.pixH);
+                     if (LabPBRConverter.hasSSSData(sI)) {
+-                        LabPBRConverter.blitSSS(sssThicknessAtlas, atlasW, sI, se.pixX, se.pixY, se.pixW, se.pixH);
++                        LabPBRConverter.blitSSS(pSss, pbrW, sI, se.pbrX, se.pbrY, se.pixW, se.pixH);
+                         se.hasSSS = true;
+                         hasAnySSS = true;
+                     }
+                 }
+                 if (sssI != null) {
+                     LabPBRConverter.blitSingleScatteringAlbedo(
+-                            sssAlbedoAtlas, atlasW, sssI, se.pixX, se.pixY, se.pixW, se.pixH);
++                            pSssAlbedo, pbrW, sssI, se.pbrX, se.pbrY, se.pixW, se.pixH);
+                     se.hasSSS = true;
+                     hasAnySSS = true;
+                 }
+@@ -470,6 +516,8 @@ public class BlockTextureManager {
+                             se.pixX, se.pixY, se.pixW, se.pixH, BuiltinEmission.mask(se.id));
+                     hasAnyEmissive = true;
+                 }
++                copyRegion(emissiveAtlas, atlasW, se.pixX, se.pixY, pEmissive, pbrW, se.pbrX, se.pbrY,
++                        se.pixW, se.pixH, 4);
+             } finally {
+                 if (nI != null) nI.close();
+                 if (sI != null) sI.close();
+@@ -479,89 +527,180 @@ public class BlockTextureManager {
+ 
+         atlasAlbedo = upload(api, "atlas_albedo", albedoRGBA, atlasW, atlasH,
+                 TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
+-
+-        RemixTexture normalTex    = hasAnyNormal ? upload(api, "atlas_normal", normalAtlas, atlasW, atlasH,
+-                TextureFormat.RGBA8_UNORM, TexturePurpose.NORMAL_DX) : null;
+-        RemixTexture heightTex    = hasAnyHeight ? upload(api, "atlas_height", heightAtlas, atlasW, atlasH,
+-                TextureFormat.R8_UNORM, TexturePurpose.HEIGHTMAP) : null;
+-        RemixTexture roughnessTex = upload(api, "atlas_roughness", roughnessAtlas, atlasW, atlasH,
+-                TextureFormat.R8_UNORM, TexturePurpose.DATA);
+-        RemixTexture metallicTex  = upload(api, "atlas_metallic", metallicAtlas, atlasW, atlasH,
+-                TextureFormat.R8_UNORM, TexturePurpose.DATA);
+-        RemixTexture emissiveTex  = hasAnyEmissive ? upload(api, "atlas_emissive", emissiveAtlas, atlasW, atlasH,
++        RemixTexture emissiveTex = hasAnyEmissive ? upload(api, "atlas_emissive", emissiveAtlas, atlasW, atlasH,
+                 TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR) : null;
+         atlasEmissive = emissiveTex;
+-        RemixTexture sssTex       = hasAnySSS ? upload(api, "atlas_sss", sssThicknessAtlas, atlasW, atlasH,
+-                TextureFormat.RGBA8_UNORM, TexturePurpose.DATA) : null;
+-        RemixTexture sssAlbedoTex = hasAnySSS ? upload(api, "atlas_sss_albedo",
+-                sssAlbedoAtlas, atlasW, atlasH, TextureFormat.RGBA8_UNORM, TexturePurpose.DATA) : null;
+-        atlasNormalTex = normalTex;
+-        atlasHeightTex = heightTex;
+-        atlasRoughnessTex = roughnessTex;
+-        atlasMetallicTex = metallicTex;
+-        atlasSssTex = sssTex;
+-        atlasSssAlbedoTex = sssAlbedoTex;
++        atlasNormalTex = null;
++        atlasHeightTex = null;
++        atlasRoughnessTex = null;
++        atlasMetallicTex = null;
++        atlasSssTex = null;
++        atlasSssAlbedoTex = null;
++
++        if (!pbrSprites.isEmpty()) {
++            pbrAlbedo    = upload(api, "pbr_albedo", pAlbedo, pbrW, pbrH,
++                    TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
++            pbrNormal    = hasAnyNormal ? upload(api, "pbr_normal", pNormal, pbrW, pbrH,
++                    TextureFormat.RGBA8_UNORM, TexturePurpose.NORMAL_DX) : null;
++            pbrHeight    = hasAnyHeight ? upload(api, "pbr_height", pHeight, pbrW, pbrH,
++                    TextureFormat.R8_UNORM, TexturePurpose.HEIGHTMAP) : null;
++            pbrRoughness = upload(api, "pbr_roughness", pRoughness, pbrW, pbrH,
++                    TextureFormat.R8_UNORM, TexturePurpose.DATA);
++            pbrMetallic  = upload(api, "pbr_metallic", pMetallic, pbrW, pbrH,
++                    TextureFormat.R8_UNORM, TexturePurpose.DATA);
++            pbrEmissive  = hasAnyEmissive ? upload(api, "pbr_emissive", pEmissive, pbrW, pbrH,
++                    TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR) : null;
++            // Remix reads only .r of a thickness texture, so one channel holds it all.
++            pbrSss       = hasAnySSS ? upload(api, "pbr_sss", redChannel(pSss), pbrW, pbrH,
++                    TextureFormat.R8_UNORM, TexturePurpose.DATA) : null;
++            pbrSssAlbedo = hasAnySSS ? upload(api, "pbr_sss_albedo", pSssAlbedo, pbrW, pbrH,
++                    TextureFormat.RGBA8_UNORM, TexturePurpose.DATA) : null;
++        }
++        if (pbrAlbedo == null) {
++            // No compact atlas (no PBR sprites, or the upload failed): every
++            // sprite stays on the main atlas and its constant material.
++            for (SpriteEntry se : pbrSprites) se.inPbrAtlas = false;
++        }
+ 
+         for (int lt = 0; lt < LAYER_COUNT; lt++) {
+             if (lt == L_TRANS) {
+-                atlasMaterials[lt] = createAtlasTransMaterial(emissiveTex, normalTex);
++                atlasMaterials[lt] = createAtlasTransMaterial(atlasAlbedo, emissiveTex, null);
++                pbrMaterials[lt] = pbrAlbedo != null
++                        ? createAtlasTransMaterial(pbrAlbedo, pbrEmissive, pbrNormal) : null;
+             } else if (lt == L_GLASS) {
+-                atlasMaterials[lt] = createAtlasGlassMaterial(emissiveTex, normalTex);
++                atlasMaterials[lt] = createAtlasGlassMaterial(atlasAlbedo, emissiveTex, null);
++                pbrMaterials[lt] = pbrAlbedo != null
++                        ? createAtlasGlassMaterial(pbrAlbedo, pbrEmissive, pbrNormal) : null;
+             } else {
+-                atlasMaterials[lt] = createAtlasOpaqueMaterial(lt, normalTex, heightTex,
+-                        roughnessTex, metallicTex, emissiveTex, null, null);
+-                atlasMaterialsSSS[lt] = hasAnySSS ? createAtlasOpaqueMaterial(lt, normalTex, heightTex,
+-                        roughnessTex, metallicTex, emissiveTex,
+-                        sssTex, sssAlbedoTex) : null;
++                atlasMaterials[lt] = createAtlasOpaqueMaterial(lt, atlasAlbedo, null, null,
++                        null, null, emissiveTex, null, null);
++                pbrMaterials[lt] = pbrAlbedo != null ? createAtlasOpaqueMaterial(lt, pbrAlbedo,
++                        pbrNormal, pbrHeight, pbrRoughness, pbrMetallic, pbrEmissive, null, null) : null;
++                atlasMaterialsSSS[lt] = pbrAlbedo != null && pbrSss != null ? createAtlasOpaqueMaterial(lt,
++                        pbrAlbedo, pbrNormal, pbrHeight, pbrRoughness, pbrMetallic, pbrEmissive,
++                        pbrSss, pbrSssAlbedo) : null;
+             }
+         }
+         int sssCount = 0;
+         StringBuilder sssSprites = new StringBuilder();
+         for (SpriteEntry se : sprites) {
+-            if (se.hasSSS) {
++            if (se.hasSSS && se.inPbrAtlas) {
+                 sssCount++;
+-                int maxBlue = 0;
++                int maxSss = 0;
+                 for (int y = 0; y < se.pixH; y++)
+                     for (int x = 0; x < se.pixW; x++) {
+-                        int idx = ((se.pixY + y) * atlasW + (se.pixX + x)) * 4;
+-                        maxBlue = Math.max(maxBlue, sssThicknessAtlas[idx] & 0xFF);
++                        int idx = ((se.pbrY + y) * pbrW + (se.pbrX + x)) * 4;
++                        maxSss = Math.max(maxSss, pSss[idx] & 0xFF);
+                     }
+                 if (sssSprites.length() < 1000)
+-                    sssSprites.append("\n  ").append(se.id).append(" (maxSSS=").append(maxBlue).append(')');
++                    sssSprites.append("\n  ").append(se.id).append(" (maxSSS=").append(maxSss).append(')');
+             }
+         }
+-        LOGGER.info("Atlas materials created (normal={} height={} emissive={} sss={}, sssSprites={}{})",
++        LOGGER.info("Atlas materials created (main atlas {}x{}: albedo + emissive; PBR atlas {}x{} for {} sprites;"
++                        + " normal={} height={} emissive={} sss={}, sssSprites={}{})",
++                atlasW, atlasH, pbrW, pbrH, pbrSprites.size(),
+                 hasAnyNormal, hasAnyHeight, hasAnyEmissive, hasAnySSS, sssCount, sssSprites);
+     }
+ 
+-    private RemixMaterial createAtlasOpaqueMaterial(int lt, RemixTexture normalTex,
++    /**
++     * Packs the PBR sprites into a power-of-two atlas. Each sprite takes a square
++     * power-of-two cell; cells go in decreasing size along a Z-order curve, which
++     * keeps every cell aligned to its own size, so Remix's mip chain never mixes
++     * two sprites below the cell's level, as in Minecraft's own atlas. Records
++     * each sprite's place and UV mapping.
++     */
++    private void packPbrAtlas(List<SpriteEntry> pbrSprites) {
++        pbrW = 0;
++        pbrH = 0;
++        if (pbrSprites.isEmpty()) return;
++        pbrSprites.sort((a, b) -> Integer.compare(pbrCell(b), pbrCell(a)));
++        long offset = 0;
++        for (SpriteEntry se : pbrSprites) {
++            int cell = pbrCell(se);
++            int o = (int) offset;
++            se.pbrX = compactEvenBits(o);
++            se.pbrY = compactEvenBits(o >>> 1);
++            offset += (long) cell * cell;
++        }
++        int side = nextPowerOfTwo((int) Math.ceil(Math.sqrt((double) offset)));
++        pbrW = side;
++        pbrH = offset <= (long) side * side / 2 ? Math.max(1, side / 2) : side;
++        for (SpriteEntry se : pbrSprites) {
++            se.inPbrAtlas = true;
++            se.pu0 = se.pbrX / (float) pbrW;
++            se.pv0 = se.pbrY / (float) pbrH;
++            se.puScale = (se.pixW / (float) pbrW) / (se.u1 - se.u0);
++            se.pvScale = (se.pixH / (float) pbrH) / (se.v1 - se.v0);
++        }
++    }
++
++    private static int pbrCell(SpriteEntry se) {
++        return nextPowerOfTwo(Math.max(se.pixW, se.pixH));
++    }
++
++    /** The bits of {@code v} at even positions, packed together (Morton decode). */
++    private static int compactEvenBits(int v) {
++        v &= 0x55555555;
++        v = (v | (v >>> 1)) & 0x33333333;
++        v = (v | (v >>> 2)) & 0x0F0F0F0F;
++        v = (v | (v >>> 4)) & 0x00FF00FF;
++        v = (v | (v >>> 8)) & 0x0000FFFF;
++        return v;
++    }
++
++    private static int nextPowerOfTwo(int value) {
++        int v = Math.max(1, value);
++        int p = Integer.highestOneBit(v);
++        return p == v ? v : p << 1;
++    }
++
++    private static void copyRegion(byte[] src, int srcW, int sx, int sy,
++                                   byte[] dst, int dstW, int dx, int dy,
++                                   int w, int h, int bytesPerPixel) {
++        int rowBytes = w * bytesPerPixel;
++        for (int y = 0; y < h; y++) {
++            System.arraycopy(src, ((sy + y) * srcW + sx) * bytesPerPixel,
++                    dst, ((dy + y) * dstW + dx) * bytesPerPixel, rowBytes);
++        }
++    }
++
++    private static byte[] redChannel(byte[] rgba) {
++        byte[] r = new byte[rgba.length / 4];
++        for (int i = 0; i < r.length; i++) r[i] = rgba[i * 4];
++        return r;
++    }
++
++    private RemixMaterial createAtlasOpaqueMaterial(int lt, RemixTexture albedoTex, RemixTexture normalTex,
+                                                RemixTexture heightTex, RemixTexture roughnessTex,
+                                                RemixTexture metallicTex, RemixTexture emissiveTex,
+                                                RemixTexture sssTex,
+                                                RemixTexture sssAlbedoTex) {
+         return createMaterialViaStore(buildAtlasOpaqueMaterialInfo(
+-                lt, normalTex, heightTex, roughnessTex, metallicTex, emissiveTex,
++                lt, albedoTex, normalTex, heightTex, roughnessTex, metallicTex, emissiveTex,
+                 sssTex, sssAlbedoTex, terrainEmissionIntensity()));
+     }
+ 
+-    private MaterialInfo buildAtlasOpaqueMaterialInfo(int lt, RemixTexture normalTex,
++    private MaterialInfo buildAtlasOpaqueMaterialInfo(int lt, RemixTexture albedoTex, RemixTexture normalTex,
+                                                RemixTexture heightTex, RemixTexture roughnessTex,
+                                                RemixTexture metallicTex, RemixTexture emissiveTex,
+                                                RemixTexture sssTex,
+                                                RemixTexture sssAlbedoTex,
+                                                float emissionIntensity) {
++        // Without maps the constants are the values: the default fill the maps carried.
+         MaterialInfoOpaqueEXT.Builder ob = MaterialInfoOpaqueEXT.builder()
+-                .albedoConstant(1f, 1f, 1f).roughnessConstant(1f).metallicConstant(1f)
++                .albedoConstant(1f, 1f, 1f)
++                .roughnessConstant(roughnessTex != null ? 1f : DEFAULT_ROUGHNESS_BYTE / 255f)
++                .metallicConstant(metallicTex != null ? 1f : 0f)
+                 .useDrawCallAlphaState(true);
+         if (lt != L_SOLID) ob.alphaTestType(4).alphaReferenceValue(128);
+         if (roughnessTex != null) ob.roughnessTexture(roughnessTex.getHandle());
+         if (metallicTex != null)  ob.metallicTexture(metallicTex.getHandle());
+         if (heightTex != null)    ob.heightTexture(heightTex.getHandle()).displaceIn(POM_DISPLACE_IN);
+         if (sssTex != null)       ob.subsurfaceExt(buildAtlasSSS(
+-                lt == L_SOLID, sssTex, sssAlbedoTex));
++                lt == L_SOLID, albedoTex, sssTex, sssAlbedoTex));
+ 
+         MaterialInfo.Builder mb = MaterialInfo.builder()
+-                .albedoTexture(atlasAlbedo.getHandle()).filterMode(0);
++                .albedoTexture(albedoTex.getHandle()).filterMode(0);
+         if (normalTex != null)   mb.normalTexture(normalTex.getHandle());
+         if (emissiveTex != null) {
+             mb.emissiveTexture(emissiveTex.getHandle())
+@@ -593,6 +732,7 @@ public class BlockTextureManager {
+     private MaterialInfo emissionScaledAtlasMaterialInfo(float emissionMultiplier) {
+         return buildAtlasOpaqueMaterialInfo(
+                 L_CUTOUT,
++                atlasAlbedo,
+                 atlasNormalTex,
+                 atlasHeightTex,
+                 atlasRoughnessTex,
+@@ -609,12 +749,12 @@ public class BlockTextureManager {
+         return baseEmissionIntensity * Math.max(0.0f, emissionMultiplier);
+     }
+ 
+-    private MaterialInfoOpaqueSubsurfaceEXT buildAtlasSSS(boolean solid, RemixTexture sssTex,
+-                                                          RemixTexture sssAlbedoTex) {
++    private MaterialInfoOpaqueSubsurfaceEXT buildAtlasSSS(boolean solid, RemixTexture albedoTex,
++                                                          RemixTexture sssTex, RemixTexture sssAlbedoTex) {
+         MaterialInfoOpaqueSubsurfaceEXT.Builder sb = MaterialInfoOpaqueSubsurfaceEXT.builder()
+-                .transmittanceTexture(atlasAlbedo.getHandle());
++                .transmittanceTexture(albedoTex.getHandle());
+         if (solid) {
+-            RemixTexture radiusTexture = (sssAlbedoTex != null) ? sssAlbedoTex : atlasAlbedo;
++            RemixTexture radiusTexture = (sssAlbedoTex != null) ? sssAlbedoTex : albedoTex;
+             sb.diffusionProfile(true).radiusTexture(radiusTexture.getHandle())
+               .radiusScale(LabPBRConverter.DIFFUSION_SSS_RADIUS_SCALE)
+               .maxSampleRadius(LabPBRConverter.DIFFUSION_SSS_MAX_SAMPLE_RADIUS);
+@@ -631,15 +771,16 @@ public class BlockTextureManager {
+     }
+ 
+ 
+-    private RemixMaterial createAtlasTransMaterial(RemixTexture emissiveTex, RemixTexture normalTex) {
++    private RemixMaterial createAtlasTransMaterial(RemixTexture albedoTex, RemixTexture emissiveTex,
++                                                   RemixTexture normalTex) {
+         return createMaterialViaStore(buildAtlasTransMaterialInfo(
+-                emissiveTex, normalTex, terrainEmissionIntensity()));
++                albedoTex, emissiveTex, normalTex, terrainEmissionIntensity()));
+     }
+ 
+-    private MaterialInfo buildAtlasTransMaterialInfo(
++    private MaterialInfo buildAtlasTransMaterialInfo(RemixTexture albedoTex,
+             RemixTexture emissiveTex, RemixTexture normalTex, float emissionIntensity) {
+         MaterialInfo.Builder mb = MaterialInfo.builder()
+-                .albedoTexture(atlasAlbedo.getHandle()).filterMode(0);
++                .albedoTexture(albedoTex.getHandle()).filterMode(0);
+         if (normalTex != null)   mb.normalTexture(normalTex.getHandle());
+         if (emissiveTex != null) {
+             mb.emissiveTexture(emissiveTex.getHandle())
+@@ -647,7 +788,7 @@ public class BlockTextureManager {
+         }
+         return mb.translucentExt(MaterialInfoTranslucentEXT.builder()
+                 .refractiveIndex(COMMON_GLASS_IOR).transmittanceColor(0.97f, 0.97f, 0.97f)
+-                .transmittanceTexture(atlasAlbedo.getHandle()).transmittanceMeasurementDistance(0.35f)
++                .transmittanceTexture(albedoTex.getHandle()).transmittanceMeasurementDistance(0.35f)
+                 .useDiffuseLayer(false).build()).build();
+     }
+ 
+@@ -658,9 +799,10 @@ public class BlockTextureManager {
+      * transmission and the albedo rides on top as a diffuse layer blended by its
+      * alpha, which draws the frame and streaks opaque and leaves the rest to refract.
+      */
+-    private RemixMaterial createAtlasGlassMaterial(RemixTexture emissiveTex, RemixTexture normalTex) {
++    private RemixMaterial createAtlasGlassMaterial(RemixTexture albedoTex, RemixTexture emissiveTex,
++                                                   RemixTexture normalTex) {
+         MaterialInfo.Builder mb = MaterialInfo.builder()
+-                .albedoTexture(atlasAlbedo.getHandle()).filterMode(0);
++                .albedoTexture(albedoTex.getHandle()).filterMode(0);
+         if (normalTex != null) mb.normalTexture(normalTex.getHandle());
+         if (emissiveTex != null) {
+             mb.emissiveTexture(emissiveTex.getHandle())
+@@ -898,7 +1040,7 @@ public class BlockTextureManager {
+             LOGGER.warn("Cannot rebuild cutout SSS materials: Remix API unavailable");
+             return false;
+         }
+-        if (!initialized || atlasAlbedo == null || atlasSssTex == null) {
++        if (!initialized || pbrAlbedo == null || pbrSss == null) {
+             return false;
+         }
+ 
+@@ -915,9 +1057,8 @@ public class BlockTextureManager {
+ 
+     private void rebuildAtlasSssMaterial(int layerType) {
+         destroyManagedMaterial(atlasMaterialsSSS[layerType]);
+-        atlasMaterialsSSS[layerType] = createAtlasOpaqueMaterial(layerType, atlasNormalTex,
+-                atlasHeightTex, atlasRoughnessTex, atlasMetallicTex, atlasEmissive, atlasSssTex,
+-                atlasSssAlbedoTex);
++        atlasMaterialsSSS[layerType] = createAtlasOpaqueMaterial(layerType, pbrAlbedo, pbrNormal,
++                pbrHeight, pbrRoughness, pbrMetallic, pbrEmissive, pbrSss, pbrSssAlbedo);
+     }
+ 
+     private void forgetCachedCutoutSpriteMaterials() {
+@@ -952,6 +1093,25 @@ public class BlockTextureManager {
+         return atlasMaterialsSSS[layerType];
+     }
+ 
++    /**
++     * NeoForge port: the material for quads of sprites in the compact PBR atlas,
++     * whose UVs go through {@link SpriteEntry#pbrU}/{@link SpriteEntry#pbrV}; null
++     * when there is no PBR atlas.
++     */
++    public RemixMaterial getPbrAtlasMaterial(int layerType) {
++        return pbrMaterials[layerType];
++    }
++
++    long pbrAlbedoHandle()    { return handleOf(pbrAlbedo); }
++    long pbrEmissiveHandle()  { return handleOf(pbrEmissive); }
++    long pbrRoughnessHandle() { return handleOf(pbrRoughness); }
++    long pbrMetallicHandle()  { return handleOf(pbrMetallic); }
++    long pbrSssHandle()       { return handleOf(pbrSss); }
++
++    private static long handleOf(RemixTexture texture) {
++        return texture != null ? texture.getHandle() : 0L;
++    }
++
+     /** Maps sprite identifiers (e.g. "minecraft:block/glowstone") to max block luminance. */
+     private static Map<String, Integer> buildLuminanceMap() {
+         Map<String, Integer> map = new HashMap<>();
+@@ -970,39 +1130,22 @@ public class BlockTextureManager {
      private void buildPBR(RemixAPI api, SpriteEntry se, NativeImage nI, NativeImage sI, NativeImage sssI,
                            byte[] alb) {
          int w = se.pixW, h = se.pixH;
@@ -76,7 +570,7 @@ index a8488c8..5a9f7ea 100644
              se.lightColor = computeLightColor(alb, ed, w, h);
          }
      }
-@@ -1067,7 +1050,8 @@ public class BlockTextureManager {
+@@ -1067,7 +1210,8 @@ public class BlockTextureManager {
  
      /** Returns the material for a sprite + layer, creating lazily. */
      public RemixMaterial getMaterial(SpriteEntry se, int layerType) {
@@ -86,3 +580,14 @@ index a8488c8..5a9f7ea 100644
          long key = (long) se.index * LAYER_COUNT + layerType;
          return materials.computeIfAbsent(key, k -> createMaterial(se, layerType));
      }
+@@ -1302,6 +1446,10 @@ public class BlockTextureManager {
+         atlasMetallicTex = null;
+         atlasSssTex = null;
+         atlasSssAlbedoTex = null;
++        Arrays.fill(pbrMaterials, null);
++        pbrAlbedo = pbrNormal = pbrHeight = pbrRoughness = pbrMetallic = pbrEmissive = null;
++        pbrSss = pbrSssAlbedo = null;
++        pbrW = pbrH = 0;
+         RemixAPI api = renderer.getRemixApi();
+         if (api != null) {
+             destroyWaterResources(api);

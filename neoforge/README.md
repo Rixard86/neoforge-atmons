@@ -59,6 +59,16 @@ the water-rapids particles are left out for that reason.
   which only an unused per-sprite material factory read. Vanilla has about
   1,500 block sprites; ATMons has about 80,000, so that was a large share of
   video memory for nothing.
+* Only the albedo and emissive maps are atlas-sized. Sprites with LabPBR data
+  (about 2% in ATMons) are copied into a compact PBR atlas, packed in
+  power-of-two cells along a Z-order curve so Remix's mips stay inside each
+  sprite, and terrain quads of those sprites are remapped into it
+  (`DirectQuadWriter`, `_pbr` buckets in `BlockMeshBuilder`); animation patches
+  follow them (`AtlasAnimationForwarder`). Upstream kept eight atlas-sized maps,
+  over 2 GB with mips at 8192 square, nearly all default fill. Items, falling
+  blocks and particles use the main atlas: albedo and emission with constant
+  roughness, so they lose LabPBR relief and gloss. SSS thickness is one channel,
+  since Remix reads only `.r`.
 
 ## Building
 
@@ -106,7 +116,9 @@ The *All the Mons - ATMons RTX* instance is a copy of the ATMons instance with:
   vanilla block-entity rendering, which RTX Remix captures.
 * ATMons' Global Packs config makes every pack in `resourcepacks/` required, so
   a pack there is always on and cannot be switched off in the menu. Packs kept
-  but not wanted sit in `resourcepacks-off/`. Keep high-resolution packs out:
+  but not wanted sit in `resourcepacks-off/`. NVIDIA's RTX art pack is in
+  `resourcepacks/` halved from 64 to 32 px, which kept the block atlas from
+  doubling; the 64 px original is in `resourcepacks-off/`. Keep high-resolution packs out:
   256 px Mekanism textures doubled the block atlas to 16384 square, which
   multiplies every atlas-sized Remix texture by four and ran a 10 GB card out
   of memory.
