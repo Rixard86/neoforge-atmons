@@ -13,7 +13,7 @@ the water-rapids particles are left out for that reason.
 
 | Path | What it is |
 |---|---|
-| `../src`, `../rtxremix-java` | Upstream sources. Three small edits, all still valid on Fabric: the `RtxRemixCommonMod.serverContentEnabled` switch (checked in `RtxRemixMod` and `WaterRapidParticleSpawner`), vanilla's `build(null)` in `CopperBeaconBlockEntity`, and RTX rendering switching itself off when the renderer does not start, so the world falls back to vanilla instead of drawing nothing |
+| `../src`, `../rtxremix-java` | Upstream sources. Three small edits, all still valid on Fabric: the `RtxRemixCommonMod.serverContentEnabled` switch (checked in `RtxRemixMod`, `WaterRapidParticleSpawner` and `LightManager`, so nothing touches the unregistered Copper Beacon classes), vanilla's `build(null)` in `CopperBeaconBlockEntity`, and RTX rendering switching itself off when the renderer does not start, so the world falls back to vanilla instead of drawing nothing |
 | `patches/` | NeoForge-only changes to upstream files, applied at build time (`git apply`), so the tree stays mergeable with upstream |
 | `compat/java/com/nvidia/rtxremix/neoforge` | NeoForge entrypoint, event bridge, NeoForge-specific mixins |
 | `compat/java/net/fabricmc` | The Fabric API surface the mod uses: vendored from Fabric API where it is pure API (Apache-2.0, FabricMC), implemented over NeoForge where it is not. Relocated to `com.nvidia.rtxremix.neoforge.fabric` in the jar |

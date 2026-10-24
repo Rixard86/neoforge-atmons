@@ -13,6 +13,7 @@ import com.nvidia.rtxremix.LightInfoSphereEXT;
 import com.nvidia.rtxremix.RemixAPI;
 import com.nvidia.rtxremix.RemixException;
 import com.nvidia.rtxremix.minecraft.RemixRenderer;
+import com.nvidia.rtxremix.minecraft.RtxRemixCommonMod;
 import com.nvidia.rtxremix.minecraft.asset.RemixLight;
 import com.nvidia.rtxremix.minecraft.asset.RemixLightStore;
 import com.nvidia.rtxremix.minecraft.block.CopperBeaconBlock;
@@ -232,10 +233,14 @@ public class LightManager {
             }
         }
 
-        double beaconAnimationTick = CopperBeaconAnimationClock.sample(world, tickDelta);
-        for (CopperBeaconBlockEntity beacon : CopperBeaconBlockEntity.loaded()) {
-            if (!beacon.isRemoved() && beacon.getWorld() == world) {
-                ensurePlacedBeaconLight(beacon, beaconAnimationTick);
+        // Without server content the Copper Beacon is never registered, no beacon can
+        // exist, and touching the block entity class would build its unregistered block.
+        if (RtxRemixCommonMod.serverContentEnabled) {
+            double beaconAnimationTick = CopperBeaconAnimationClock.sample(world, tickDelta);
+            for (CopperBeaconBlockEntity beacon : CopperBeaconBlockEntity.loaded()) {
+                if (!beacon.isRemoved() && beacon.getWorld() == world) {
+                    ensurePlacedBeaconLight(beacon, beaconAnimationTick);
+                }
             }
         }
 
