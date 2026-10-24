@@ -177,12 +177,17 @@ public class PropagateMappings {
         for (String[] x : i.methods()) {
             String key = x[0] + x[1];
             String t = mm.get(key);
+            // Members with no mapping at all (NeoForge additions, overrides of
+            // library methods) keep their name; listing them lets the Mixin
+            // annotation processor resolve targets like NeoForge's getQuads.
+            if (t == null && self && !x[0].startsWith("<")) t = x[0];
             if (t == null || (!self && !overridable(Integer.parseInt(x[2])) && (Integer.parseInt(x[2]) & Opcodes.ACC_STATIC) == 0)) continue;
             if (!self && (Integer.parseInt(x[2]) & Opcodes.ACC_PRIVATE) != 0) continue;
             m.putIfAbsent(key, t);
         }
         for (String[] x : i.fields()) {
             String t = fm.get(x[0]);
+            if (t == null && self) t = x[0];
             if (t == null) continue;
             if (!self && (Integer.parseInt(x[2]) & Opcodes.ACC_PRIVATE) != 0) continue;
             f.putIfAbsent(x[0], t);
