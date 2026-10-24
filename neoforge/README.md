@@ -104,6 +104,12 @@ The *All the Mons - ATMons RTX* instance is a copy of the ATMons instance with:
   captures from, or depend on Iris.
 * Flywheel's backend set to `flywheel:off`, so Create's machines draw through
   vanilla block-entity rendering, which RTX Remix captures.
+* ATMons' Global Packs config makes every pack in `resourcepacks/` required, so
+  a pack there is always on and cannot be switched off in the menu. Packs kept
+  but not wanted sit in `resourcepacks-off/`. Keep high-resolution packs out:
+  256 px Mekanism textures doubled the block atlas to 16384 square, which
+  multiplies every atlas-sized Remix texture by four and ran a 10 GB card out
+  of memory.
 * No logs, backups or regenerable caches. Singleplayer worlds were copied over
   afterwards; the ATMons instance keeps its own.
 * Unlinked from the CurseForge modpack (a custom profile, like any hand-built
