@@ -39,6 +39,14 @@ public class RtxRemixCommonMod implements ModInitializer {
      */
     public static final String MOD_ID = "rtx-remix-renderer";
 
+    /**
+     * Whether content that must also exist on the server (the beacon blocks,
+     * their menu and payload, and the rapids particle types, which NeoForge
+     * synchronises) is registered. A client-only build clears this before the
+     * client entrypoint runs, so the client can join servers without the mod.
+     */
+    public static boolean serverContentEnabled = true;
+
     @Override
     public void onInitialize() {
         SpotLightBlock.registerAll();

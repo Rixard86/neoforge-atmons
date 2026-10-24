@@ -325,15 +325,17 @@ public class RtxRemixMod implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         instance = this;
-        EntityModelLayerRegistry.registerModelLayer(
-                CopperBeaconBlockEntityRenderer.BODY_MODEL_LAYER,
-                CopperBeaconBlockEntityRenderer::getBodyTexturedModelData);
-        EntityModelLayerRegistry.registerModelLayer(
-                CopperBeaconBlockEntityRenderer.LENS_MODEL_LAYER,
-                CopperBeaconBlockEntityRenderer::getLensTexturedModelData);
-        BlockEntityRendererFactories.register(
-                CopperBeaconBlockEntity.TYPE, CopperBeaconBlockEntityRenderer::new);
-        HandledScreens.register(CopperBeaconScreenHandler.TYPE, CopperBeaconScreen::new);
+        if (RtxRemixCommonMod.serverContentEnabled) {
+            EntityModelLayerRegistry.registerModelLayer(
+                    CopperBeaconBlockEntityRenderer.BODY_MODEL_LAYER,
+                    CopperBeaconBlockEntityRenderer::getBodyTexturedModelData);
+            EntityModelLayerRegistry.registerModelLayer(
+                    CopperBeaconBlockEntityRenderer.LENS_MODEL_LAYER,
+                    CopperBeaconBlockEntityRenderer::getLensTexturedModelData);
+            BlockEntityRendererFactories.register(
+                    CopperBeaconBlockEntity.TYPE, CopperBeaconBlockEntityRenderer::new);
+            HandledScreens.register(CopperBeaconScreenHandler.TYPE, CopperBeaconScreen::new);
+        }
         RemixWeatherRenderer.registerShaders();
         LOGGER.info("========================================");
         LOGGER.info("RTX Remix Renderer v{} initializing...", getModVersion());
@@ -349,9 +351,11 @@ public class RtxRemixMod implements ClientModInitializer {
         remixAvailable = checkRemixAvailability();
         
         registerCommands();
-        // Particle types are a client-side registry, so they stay here. Blocks
-        // are synced and register in RtxRemixCommonMod instead.
-        RapidFoamParticles.register();
+        // Particle types are a client-side registry on Fabric, so they stay here.
+        // Blocks are synced and register in RtxRemixCommonMod instead.
+        if (RtxRemixCommonMod.serverContentEnabled) {
+            RapidFoamParticles.register();
+        }
 
         // G is unbound in vanilla 1.21.1 and unclaimed elsewhere in this mod, so
         // this is a real registered binding rather than a raw GLFW intercept: it

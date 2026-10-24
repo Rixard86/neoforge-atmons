@@ -209,7 +209,8 @@ def mixin_jar():
 def source_files():
     roots = [os.path.join(REPO, 'src', 'main', 'java'),
              os.path.join(REPO, 'rtxremix-java', 'src'),
-             os.path.join(HERE, 'compat', 'java')]
+             os.path.join(HERE, 'compat', 'java'),
+             os.path.join(HERE, 'compat', 'compileonly')]
     out = []
     for r in roots:
         for dp, _, fs in os.walk(r):

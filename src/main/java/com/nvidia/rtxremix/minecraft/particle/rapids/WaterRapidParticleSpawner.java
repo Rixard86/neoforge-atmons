@@ -4,6 +4,7 @@
  */
 package com.nvidia.rtxremix.minecraft.particle.rapids;
 
+import com.nvidia.rtxremix.minecraft.RtxRemixCommonMod;
 import com.nvidia.rtxremix.minecraft.RtxRemixMod;
 import net.fabricmc.fabric.api.client.render.fluid.v1.FluidRenderHandler;
 import net.fabricmc.fabric.api.client.render.fluid.v1.FluidRenderHandlerRegistry;
@@ -45,6 +46,10 @@ public final class WaterRapidParticleSpawner {
 
     public static void spawnRandomDisplayParticles(ClientWorld world, int centerX, int centerY, int centerZ) {
         if (!RtxRemixMod.isRtxEnabled() || !RtxRemixMod.isWorldEnabled() || !RtxRemixMod.isParticlesEnabled()) {
+            return;
+        }
+        // The rapids particle types are registered only with server content.
+        if (!RtxRemixCommonMod.serverContentEnabled) {
             return;
         }
 
