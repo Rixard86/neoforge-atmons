@@ -27,6 +27,10 @@ the water-rapids particles are left out for that reason.
   overload, which is where section meshing happens on NeoForge.
 * Terrain capture passes NeoForge model data to models, so connected-texture and
   other data-driven modded models capture with their real geometry.
+* Terrain capture takes each block's render types from its model, per render
+  type as NeoForge's section compiler does. Modded blocks name their render
+  type in the model JSON, which vanilla's layer map never sees, so classifying
+  by that map drew modded cutouts (flowers, bushes) as opaque quads.
 * `WorldRendererMixin` wraps NeoForge's `ModelData` breaking-texture call and its
   frustum-aware particle draws.
 * Weighted and multipart model mixins are ported to NeoForge's `getQuads` overload

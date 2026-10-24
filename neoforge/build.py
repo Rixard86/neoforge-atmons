@@ -295,7 +295,7 @@ def stage_compile():
 
 # ------------------------------------------------------------------ package
 
-PORT_VERSION = '5'
+PORT_VERSION = '6'
 RELOCATE_FROM = 'net/fabricmc/'
 RELOCATE_TO = 'com/nvidia/rtxremix/neoforge/fabric/'
 UPSTREAM_MIXIN_CONFIG = 'rtx-remix-renderer.mixins.json'

@@ -1,11 +1,20 @@
 diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/BlockQuadEmitter.java b/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/BlockQuadEmitter.java
-index a782e3a..630da15 100644
+index a782e3a..f0c8da7 100644
 --- a/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/BlockQuadEmitter.java
 +++ b/src/main/java/com/nvidia/rtxremix/minecraft/terrain/capture/BlockQuadEmitter.java
-@@ -354,6 +354,13 @@ public final class BlockQuadEmitter {
+@@ -19,7 +19,6 @@ import net.minecraft.block.Blocks;
+ import net.minecraft.client.MinecraftClient;
+ import net.minecraft.client.color.block.BlockColors;
+ import net.minecraft.client.render.RenderLayer;
+-import net.minecraft.client.render.RenderLayers;
+ import net.minecraft.client.render.block.BlockRenderManager;
+ import net.minecraft.client.render.model.BakedModel;
+ import net.minecraft.client.render.model.BakedQuad;
+@@ -353,12 +352,18 @@ public final class BlockQuadEmitter {
+         }
  
          BakedModel model = blockRenderManager.getModel(state);
-         String layerName = classifyBlockLayer(state);
+-        String layerName = classifyBlockLayer(state);
 +        // NeoForge: modded models (connected textures, Create, ...) shape their
 +        // quads from per-block model data, which vanilla's getQuads leaves empty.
 +        net.neoforged.neoforge.client.model.data.ModelData regionData =
@@ -15,8 +24,15 @@ index a782e3a..630da15 100644
 +        modelData = model.getModelData(world, pos, state, regionData);
  
          if (model instanceof FabricBakedModel fbm && !fbm.isVanillaAdapter()) {
-             emitFrapiBlock(world, state, model, fbm, layerName, lx, ly, lz);
-@@ -394,6 +401,10 @@ public final class BlockQuadEmitter {
+-            emitFrapiBlock(world, state, model, fbm, layerName, lx, ly, lz);
++            emitFrapiBlock(world, state, model, fbm, classifyBlockLayer(state), lx, ly, lz);
+         } else {
+-            emitVanillaBlock(world, state, model, layerName, lx, ly, lz);
++            emitVanillaBlock(world, state, model, lx, ly, lz);
+         }
+     }
+ 
+@@ -394,20 +399,40 @@ public final class BlockQuadEmitter {
          }
      }
  
@@ -25,15 +41,96 @@ index a782e3a..630da15 100644
 +            net.neoforged.neoforge.client.model.data.ModelData.EMPTY;
 +
      private void emitVanillaBlock(BlockRenderView world, BlockState state,
-                                    BakedModel model, String layerName,
+-                                   BakedModel model, String layerName,
++                                   BakedModel model,
                                     float lx, float ly, float lz) {
-@@ -404,7 +415,8 @@ public final class BlockQuadEmitter {
+-
+-        for (Direction dir : ALL_DIRECTIONS) {
+-            if (dir != null && !shouldDrawBlockSide(world, state, dir)) {
++        // NeoForge: the model names its render types. Modded blocks set them in
++        // their model JSON, which vanilla's layer map never sees, so classifying
++        // by that map draws their cutouts opaque. Quads are fetched per render
++        // type with the block's model data, as NeoForge's section compiler does.
++        boolean clearGlass = isClearGlass(state);
++        random.setSeed(modelRandomSeed);
++        net.neoforged.neoforge.client.ChunkRenderTypeSet renderTypes =
++                model.getRenderTypes(state, random, modelData);
++        List<RenderLayer> chunkLayers = RenderLayer.getBlockLayers();
++        for (int t = 0; t < chunkLayers.size(); t++) {
++            RenderLayer renderType = chunkLayers.get(t);
++            if (!renderTypes.contains(renderType)) {
+                 continue;
              }
++            String layerName = clearGlass ? "glass" : layerName(renderType);
  
-             random.setSeed(modelRandomSeed);
+-            random.setSeed(modelRandomSeed);
 -            List<BakedQuad> bakedQuads = model.getQuads(state, dir, random);
-+            // NeoForge: all render types (null) with this block's model data.
-+            List<BakedQuad> bakedQuads = model.getQuads(state, dir, random, modelData, null);
++            for (Direction dir : ALL_DIRECTIONS) {
++                if (dir != null && !shouldDrawBlockSide(world, state, dir)) {
++                    continue;
++                }
  
-             for (BakedQuad bq : bakedQuads) {
-                 stageBakedQuad(bq, layerName, state, world, lx, ly, lz);
+-            for (BakedQuad bq : bakedQuads) {
+-                stageBakedQuad(bq, layerName, state, world, lx, ly, lz);
++                random.setSeed(modelRandomSeed);
++                List<BakedQuad> bakedQuads = model.getQuads(state, dir, random, modelData, renderType);
++
++                for (BakedQuad bq : bakedQuads) {
++                    stageBakedQuad(bq, layerName, state, world, lx, ly, lz);
++                }
+             }
+         }
+ 
+@@ -992,18 +1017,40 @@ public final class BlockQuadEmitter {
+      * question, so it shades as its placed counterpart does.
+      */
+     public static String classifyBlockLayer(BlockState state) {
+-        // Vanilla draws clear glass as a cutout: the texture is alpha 0 between
+-        // the frame pixels and the GL path simply discards those. Remix can
+-        // refract through it instead, so clear glass takes its own layer and a
+-        // translucent material with the frame as a diffuse layer.
+-        // Stained glass is already translucent and keeps vanilla's layer.
+-        if (state.isOf(Blocks.GLASS) || state.isOf(Blocks.GLASS_PANE)) return "glass";
+-        RenderLayer layer = RenderLayers.getBlockLayer(state);
+-        if (layer == RenderLayer.getSolid()) return "solid";
+-        if (layer == RenderLayer.getCutoutMipped()) return "cutout_mipped";
+-        if (layer == RenderLayer.getCutout()) return "cutout";
+-        if (layer == RenderLayer.getTranslucent()) return "translucent";
+-        if (layer == RenderLayer.getTripwire()) return "cutout";
++        if (isClearGlass(state)) return "glass";
++        // NeoForge: ask the model, which knows the render types modded blocks set
++        // in their model JSON; the most see-through one decides.
++        BakedModel model = MinecraftClient.getInstance().getBlockRenderManager().getModel(state);
++        Random modelRandom = CLASSIFY_RANDOM.get();
++        modelRandom.setSeed(42L);
++        net.neoforged.neoforge.client.ChunkRenderTypeSet renderTypes = model.getRenderTypes(
++                state, modelRandom, net.neoforged.neoforge.client.model.data.ModelData.EMPTY);
++        if (renderTypes.contains(RenderLayer.getTranslucent())) return "translucent";
++        if (renderTypes.contains(RenderLayer.getCutoutMipped())) return "cutout_mipped";
++        if (renderTypes.contains(RenderLayer.getCutout())) return "cutout";
++        if (renderTypes.contains(RenderLayer.getTripwire())) return "cutout";
++        return "solid";
++    }
++
++    private static final ThreadLocal<Random> CLASSIFY_RANDOM = ThreadLocal.withInitial(() -> new LocalRandom(42L));
++
++    /**
++     * Vanilla draws clear glass as a cutout: the texture is alpha 0 between the
++     * frame pixels and the GL path simply discards those. Remix can refract
++     * through it instead, so clear glass takes its own layer and a translucent
++     * material with the frame as a diffuse layer. Stained glass is already
++     * translucent and keeps its own layer.
++     */
++    private static boolean isClearGlass(BlockState state) {
++        return state.isOf(Blocks.GLASS) || state.isOf(Blocks.GLASS_PANE);
++    }
++
++    /** The terrain layer name for one of the chunk render types. */
++    private static String layerName(RenderLayer renderType) {
++        if (renderType == RenderLayer.getCutoutMipped()) return "cutout_mipped";
++        if (renderType == RenderLayer.getCutout()) return "cutout";
++        if (renderType == RenderLayer.getTranslucent()) return "translucent";
++        if (renderType == RenderLayer.getTripwire()) return "cutout";
+         return "solid";
+     }
+ 
