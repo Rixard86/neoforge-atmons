@@ -30,6 +30,12 @@ public class PropagateMappings {
     static final Map<String, Info> infos = new HashMap<>();
 
     public static void main(String[] args) throws IOException {
+        // Optional fifth argument: Mojang-name proposals for members Yarn's
+        // mapping files leave unnamed ("owner field" or "owner method(desc)").
+        Set<String> proposals = new HashSet<>();
+        if (args.length > 4) {
+            for (String l : Files.readAllLines(Path.of(args[4]))) if (!l.isBlank()) proposals.add(l.trim());
+        }
         String cur = null;
         for (String line : Files.readAllLines(Path.of(args[0]))) {
             if (line.isEmpty()) continue;
@@ -60,6 +66,35 @@ public class PropagateMappings {
                 infos.put(r.getClassName(), new Info(r.getClassName(), r.getSuperName(), r.getInterfaces(), ms, fs));
             }
         }
+
+        // 0. Apply proposals the way Yarn's build does: constants (static final
+        //    fields) and record components take their natural names.
+        int applied = 0;
+        for (Info i : infos.values()) {
+            Map<String, String> fm = fieldMap.get(i.name());
+            if (fm != null) {
+                for (String[] f : i.fields()) {
+                    int acc = Integer.parseInt(f[2]);
+                    boolean constant = (acc & (Opcodes.ACC_STATIC | Opcodes.ACC_FINAL)) == (Opcodes.ACC_STATIC | Opcodes.ACC_FINAL);
+                    boolean component = "java/lang/Record".equals(i.sup()) && (acc & Opcodes.ACC_STATIC) == 0;
+                    if ((constant || component) && proposals.contains(i.name() + " " + f[0]) && fm.containsKey(f[0])) {
+                        fm.put(f[0], f[0]);
+                        applied++;
+                    }
+                }
+            }
+            Map<String, String> mm = methodMap.get(i.name());
+            if (mm != null && "java/lang/Record".equals(i.sup())) {
+                for (String[] m : i.methods()) {
+                    String key = m[0] + m[1];
+                    if (proposals.contains(i.name() + " " + key) && mm.containsKey(key)) {
+                        mm.put(key, m[0]);
+                        applied++;
+                    }
+                }
+            }
+        }
+        System.out.println("applied " + applied + " name proposals");
 
         // 1. Overrides take the overridden method's name (resolved top-down).
         Set<String> done = new HashSet<>();

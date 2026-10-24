@@ -160,7 +160,8 @@ def stage_prepare():
     if not fresh(os.path.join(mapdir, 'yarn2moj.tsrg'), os.path.join(mapdir, 'moj2yarn-declared.tsrg'), mc_moj, prop_tool):
         run([java(), '-Xmx1500m', '-cp', os.pathsep.join(asm_jars()), prop_tool,
              os.path.join(mapdir, 'moj2yarn-declared.tsrg'), mc_moj,
-             os.path.join(mapdir, 'moj2yarn.tsrg'), os.path.join(mapdir, 'yarn2moj.tsrg')])
+             os.path.join(mapdir, 'moj2yarn.tsrg'), os.path.join(mapdir, 'yarn2moj.tsrg'),
+             os.path.join(mapdir, 'proposals.txt')])
 
     libs = game_libraries()
     with open(W('libraries.txt'), 'w') as f:

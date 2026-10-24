@@ -187,6 +187,7 @@ def main():
     def off_desc_to_int(d):
         return remap_desc(d, off2int)
 
+    proposals = []
     fields = {}  # mojOwner -> list[(moj, yarn)]
     for off_owner, off_name, moj_name, _ in pg_fields:
         inter = int_fields.get((off_owner, off_name))
@@ -197,6 +198,12 @@ def main():
             yname = off_name  # not obfuscated: every namespace keeps the official name
         else:
             yname = y_fields.get((int_owner, inter), inter)
+            if yname == inter:
+                # Yarn's build names some members that its mapping files leave
+                # unnamed (constants from their registry/enum string, record
+                # components). Offer Mojang's name; PropagateMappings applies it
+                # to static final fields and record components only.
+                proposals.append(f'{off2moj[off_owner]} {moj_name}')
         fields.setdefault(off2moj[off_owner], []).append((moj_name, yname))
 
     methods = {}  # mojOwner -> list[(mojName, mojDesc, yarnName, yarnDesc)]
@@ -215,6 +222,8 @@ def main():
         else:
             int_desc = off_desc_to_int(off_desc)
             yname = y_methods.get((int_owner, inter, int_desc), inter)
+            if yname == inter and inter.startswith('comp_'):
+                proposals.append(f'{off2moj[off_owner]} {moj_name}{moj_desc}')
         ydesc = remap_desc(moj_desc, yarn_of_moj)
         methods.setdefault(off2moj[off_owner], []).append((moj_name, moj_desc, yname, ydesc))
         n_meth += 1
@@ -235,6 +244,8 @@ def main():
     # Declared members only; PropagateMappings adds inherited/overriding
     # members from the class hierarchy and writes the final pair of files.
     write(os.path.join(out, 'moj2yarn-declared.tsrg'), True)
+    with open(os.path.join(out, 'proposals.txt'), 'w', encoding='utf-8') as f:
+        f.write('\n'.join(proposals) + '\n')
     print(f'classes={len(classes)} fields={sum(map(len, fields.values()))} '
           f'methods={n_meth} (no intermediary: {n_missing})')
 
