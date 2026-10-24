@@ -1,4 +1,4 @@
-# RTX Remix for Minecraft — NeoForge port for All the Mons
+# RTX Remix for Minecraft: NeoForge port for All the Mons
 
 > **This is an unofficial fork.** It ports NVIDIA's
 > [RTX Remix for Minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft)

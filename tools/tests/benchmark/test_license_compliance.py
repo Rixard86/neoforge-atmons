@@ -58,7 +58,9 @@ HEADERED_SUFFIXES = frozenset(
 # gradle/ and gradlew.bat are the Gradle wrapper and packman/ contains the
 # Packman bootstrap; both keep their upstream licensing, attributed in
 # THIRD_PARTY_NOTICES.md. remix_c.h is vendored from dxvk-remix and remains MIT.
-EXCLUDED_PREFIXES = ("gradle/", "packman/")
+# neoforge/ is this fork's NeoForge port, not NVIDIA's code: its own files carry
+# a plain SPDX line and its vendored Fabric API files keep FabricMC's header.
+EXCLUDED_PREFIXES = ("gradle/", "packman/", "neoforge/")
 EXCLUDED_PATHS = frozenset({"gradlew.bat", "rtxremix-java/native/include/remix_c.h"})
 
 # Lowercased phrasing that imposes a CLA, as opposed to merely mentioning one.
