@@ -1,0 +1,55 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="Apache-2.0"
+issueTrackerURL="https://github.com/Rixard86/neoforge-atmons/issues"
+
+[[mods]]
+modId="${mod_id}"
+version="${version}"
+displayName="RTX Remix for Minecraft (NeoForge, client only)"
+authors="NVIDIA (RTX Remix for Minecraft); NeoForge port"
+displayURL="https://github.com/Rixard86/neoforge-atmons"
+description='''Renders Minecraft through NVIDIA RTX Remix path tracing.
+Unofficial NeoForge port of NVIDIA's Fabric mod. Client only: it registers no
+blocks, items, particles or network payloads, so it joins servers without it.
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.'''
+
+[[mixins]]
+config="${upstream_mixins}"
+
+[[mixins]]
+config="${compat_mixins}"
+
+[[accessTransformers]]
+file="META-INF/accesstransformer.cfg"
+
+[[dependencies.${mod_id}]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.0,21.2)"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.${mod_id}]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+ordering="NONE"
+side="CLIENT"
+
+# Both replace the world rendering this mod captures from.
+[[dependencies.${mod_id}]]
+modId="sodium"
+type="incompatible"
+reason="Sodium replaces the chunk renderer that RTX Remix captures terrain from. Disable it in this instance."
+versionRange="*"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.${mod_id}]]
+modId="iris"
+type="incompatible"
+reason="Iris shaders and RTX Remix path tracing both take over world rendering. Disable it in this instance."
+versionRange="*"
+ordering="NONE"
+side="CLIENT"

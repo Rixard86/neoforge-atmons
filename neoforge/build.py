@@ -273,9 +273,153 @@ def stage_compile():
     log('compile done:', sum(len(fs) for _, _, fs in os.walk(out)), 'files')
 
 
+# ------------------------------------------------------------------ package
+
+PORT_VERSION = '1'
+RELOCATE_FROM = 'net/fabricmc/'
+RELOCATE_TO = 'com/nvidia/rtxremix/neoforge/fabric/'
+UPSTREAM_MIXIN_CONFIG = 'rtx-remix-renderer.mixins.json'
+COMPAT_MIXIN_CONFIG = 'rtx_remix_renderer.neoforge.mixins.json'
+REFMAP = 'rtx-remix-renderer-refmap.json'
+# Release-jar entries not carried into the NeoForge jar.
+DROP_FROM_RELEASE = ['*.class', 'fabric.mod.json', REFMAP, 'rtx-remix-renderer.accesswidener',
+                     UPSTREAM_MIXIN_CONFIG, 'META-INF/MANIFEST.MF',
+                     'data/*',                       # Copper Beacon recipe, loot table and tags
+                     'native/remix-sdk-arm64/*']     # Windows on ARM runtime (this build is x64)
+
+
+def mod_version():
+    base = os.path.basename(CONFIG['RELEASE_JAR'])[len('rtx-remix-renderer-'):-len('.jar')]
+    return f'{base}-neoforge.{PORT_VERSION}'
+
+
+def final_mapping():
+    """yarn -> mojmap for the compiled classes: the game mapping, the mixin
+    members the annotation processor resolved, and the compat relocation."""
+    out = W('map', 'final.tsrg')
+    lines = []
+    with open(W('map', 'yarn2moj.tsrg'), encoding='utf-8') as f:
+        lines.append(f.read().rstrip('\n'))
+    blocks = {}
+    with open(W('mixin-out.tsrg'), encoding='utf-8') as f:
+        for l in f:
+            p = l.split()
+            if len(p) == 3:
+                blocks.setdefault(p[0], []).append(f'\t{p[1]} {p[2]}')
+            elif len(p) == 4:
+                blocks.setdefault(p[0], []).append(f'\t{p[1]} {p[2]} {p[3]}')
+    classes_dir = W('classes')
+    relocated = []
+    for dp, _, fs in os.walk(os.path.join(classes_dir, *RELOCATE_FROM.strip('/').split('/'))):
+        for fn in fs:
+            if fn.endswith('.class'):
+                rel = os.path.relpath(os.path.join(dp, fn), classes_dir).replace(os.sep, '/')[:-6]
+                relocated.append(rel)
+    for c in sorted(set(relocated) | set(blocks)):
+        target = RELOCATE_TO + c[len(RELOCATE_FROM):] if c.startswith(RELOCATE_FROM) else c
+        lines.append(f'{c} {target}')
+        lines.extend(blocks.get(c, []))
+    with open(out, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
+    return out
+
+
+def mods_toml(version):
+    with open(os.path.join(HERE, 'neoforge.mods.toml')) as f:
+        return f.read().replace('${version}', version).replace('${mod_id}', MOD_ID) \
+            .replace('${upstream_mixins}', UPSTREAM_MIXIN_CONFIG).replace('${compat_mixins}', COMPAT_MIXIN_CONFIG)
+
+
+def mixin_configs():
+    with open(os.path.join(REPO, 'src', 'main', 'resources', UPSTREAM_MIXIN_CONFIG)) as f:
+        upstream = json.load(f)
+    for section in ('mixins', 'client', 'server'):
+        if section in upstream:
+            upstream[section] = [m for m in upstream[section] if m not in EXCLUDED_MIXINS]
+    upstream['refmap'] = REFMAP
+    compat_dir = os.path.join(HERE, 'compat', 'java', 'com', 'nvidia', 'rtxremix', 'neoforge', 'mixin')
+    compat = sorted(f[:-5] for f in os.listdir(compat_dir) if f.endswith('.java'))
+    compat_cfg = {
+        'required': True,
+        'minVersion': '0.8',
+        'package': 'com.nvidia.rtxremix.neoforge.mixin',
+        'compatibilityLevel': 'JAVA_21',
+        'refmap': REFMAP,
+        'client': compat,
+        'injectors': {'defaultRequire': 1},
+    }
+    return upstream, compat_cfg
+
+
+def stage_package():
+    from tsrg import Tsrg, aw_to_at
+    version = mod_version()
+    stage = W('stage')
+    if os.path.exists(stage):
+        shutil.rmtree(stage)
+    os.makedirs(stage)
+
+    # Compiled classes (Yarn names) -> Mojang names, with the compat relocation.
+    classes = W('classes')
+    yarn_jar = W('mod-yarn.jar')
+    with zipfile.ZipFile(yarn_jar, 'w', zipfile.ZIP_DEFLATED) as z:
+        for dp, _, fs in os.walk(classes):
+            for fn in fs:
+                full = os.path.join(dp, fn)
+                rel = os.path.relpath(full, classes).replace(os.sep, '/')
+                if rel.startswith('org/jetbrains/') or not rel.endswith('.class'):
+                    continue
+                z.write(full, rel)
+    mapping = final_mapping()
+    art = lib('net', 'neoforged', 'AutoRenamingTool', '2.0.3', 'AutoRenamingTool-2.0.3-all.jar')
+    moj_jar = W('mod-moj.jar')
+    cmd = [java(), '-Xmx1500m', '-jar', art, '--input', yarn_jar, '--output', moj_jar,
+           '--names', mapping, '--threads', '2', '--lib', W('mc-yarn.jar'), '--lib', W('neoforge-yarn.jar')]
+    for l in compile_classpath()[2:]:
+        cmd += ['--lib', l]
+    run(cmd, quiet=W('art-mod.log'))
+    with zipfile.ZipFile(moj_jar) as z:
+        z.extractall(stage)
+
+    # Generated metadata and configs.
+    os.makedirs(os.path.join(stage, 'META-INF'), exist_ok=True)
+    with open(os.path.join(stage, 'META-INF', 'neoforge.mods.toml'), 'w') as f:
+        f.write(mods_toml(version))
+    at = aw_to_at(access_wideners(), Tsrg(W('map', 'yarn2moj.tsrg')))
+    with open(os.path.join(stage, 'META-INF', 'accesstransformer.cfg'), 'w') as f:
+        f.write('# Generated from the Fabric access wideners (Yarn) by neoforge/build.py\n')
+        f.write('\n'.join(at) + '\n')
+    upstream_cfg, compat_cfg = mixin_configs()
+    with open(os.path.join(stage, UPSTREAM_MIXIN_CONFIG), 'w') as f:
+        json.dump(upstream_cfg, f, indent=4)
+    with open(os.path.join(stage, COMPAT_MIXIN_CONFIG), 'w') as f:
+        json.dump(compat_cfg, f, indent=4)
+    shutil.copy(os.path.join(classes, REFMAP), os.path.join(stage, REFMAP))
+    with open(os.path.join(stage, 'pack.mcmeta'), 'w') as f:
+        json.dump({'pack': {'description': 'RTX Remix for Minecraft resources', 'pack_format': 34}}, f)
+    with open(os.path.join(stage, 'META-INF', 'MANIFEST.MF'), 'w') as f:
+        f.write('Manifest-Version: 1.0\n'
+                f'Implementation-Title: {MOD_ID}\n'
+                f'Implementation-Version: {version}\n'
+                'Implementation-Vendor: NVIDIA (upstream), NeoForge port\n\n')
+    shutil.copy(os.path.join(HERE, 'NOTICE-neoforge.txt'), os.path.join(stage, 'NOTICE-neoforge.txt'))
+
+    # Start from NVIDIA's release jar (native runtime, textures, assets) and
+    # swap in the NeoForge build. zip edits in place without recompressing.
+    dist = W('dist')
+    os.makedirs(dist, exist_ok=True)
+    final = os.path.join(dist, f'rtx-remix-renderer-{version}.jar')
+    shutil.copy(CONFIG['RELEASE_JAR'], final + '.tmp')
+    subprocess.run(['zip', '-q', '-d', final + '.tmp'] + DROP_FROM_RELEASE, check=False)
+    subprocess.run(['zip', '-q', '-r', os.path.abspath(final + '.tmp'), '.'], cwd=stage, check=True)
+    os.replace(final + '.tmp', final)
+    log('package done:', final, f'{os.path.getsize(final) / 1e6:.0f} MB')
+
+
 STAGES = {
     'prepare': stage_prepare,
     'compile': stage_compile,
+    'package': stage_package,
 }
 
 if __name__ == '__main__':
