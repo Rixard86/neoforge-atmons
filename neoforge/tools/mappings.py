@@ -141,6 +141,9 @@ def main():
     moj2off = {v: k for k, v in off2moj.items()}
     off2int, int_fields, int_methods = read_tiny_v1(tiny)
     int2yarn, y_fields, y_methods = read_yarn(yarn_dir)
+    y_by_inter = {}
+    for (_, inter, _), named in y_methods.items():
+        y_by_inter.setdefault(inter, named)
 
     def off2yarn_class(off):
         inter = off2int.get(off, off)
@@ -221,7 +224,12 @@ def main():
             yname = off_name  # not obfuscated: every namespace keeps the official name
         else:
             int_desc = off_desc_to_int(off_desc)
-            yname = y_methods.get((int_owner, inter, int_desc), inter)
+            yname = y_methods.get((int_owner, inter, int_desc))
+            if yname is None:
+                # Intermediary gives one name to a method and everything that
+                # overrides or specializes it; Yarn names it once, on the
+                # declaring class, and its build spreads the name to the rest.
+                yname = y_by_inter.get(inter, inter)
             if yname == inter and inter.startswith('comp_'):
                 proposals.append(f'{off2moj[off_owner]} {moj_name}{moj_desc}')
         ydesc = remap_desc(moj_desc, yarn_of_moj)
