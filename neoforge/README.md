@@ -54,6 +54,11 @@ the water-rapids particles are left out for that reason.
   sections were still reading, which left holes and wrong blocks in the
   terrain even with RTX off.
 * Fluids come from NeoForge's `IClientFluidTypeExtensions`, so modded fluids work.
+* `BlockTextureManager` uploads the block atlas once and no per-sprite textures.
+  Upstream also kept the raw atlas stitch and a texture set for every sprite,
+  which only an unused per-sprite material factory read. Vanilla has about
+  1,500 block sprites; ATMons has about 80,000, so that was a large share of
+  video memory for nothing.
 
 ## Building
 

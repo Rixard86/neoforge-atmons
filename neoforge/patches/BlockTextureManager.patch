@@ -1,0 +1,88 @@
+diff --git a/src/main/java/com/nvidia/rtxremix/minecraft/texture/BlockTextureManager.java b/src/main/java/com/nvidia/rtxremix/minecraft/texture/BlockTextureManager.java
+index a8488c8..5a9f7ea 100644
+--- a/src/main/java/com/nvidia/rtxremix/minecraft/texture/BlockTextureManager.java
++++ b/src/main/java/com/nvidia/rtxremix/minecraft/texture/BlockTextureManager.java
+@@ -285,8 +285,9 @@ public class BlockTextureManager {
+             return;
+         }
+         albedoRGBA = stitchAtlasRGBA(atlas);
+-        atlasAlbedo = upload(api, "block_atlas", albedoRGBA, atlasW, atlasH,
+-                TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
++        // NeoForge port: buildAtlasMaterials uploads the albedo once AO is applied.
++        // Uploading the raw stitch here as well kept a second full-size atlas in
++        // video memory that no material referenced.
+         LOGGER.info("Atlas {}x{} (stitched from {} sprites)",
+                 atlasW, atlasH, ((SpriteAtlasAccessor) atlas).getSprites().size());
+     }
+@@ -312,13 +313,12 @@ public class BlockTextureManager {
+             NativeImage sssI = labPBRVariants.loadVariant(e.getKey(), "_sss");
+             try {
+                 if (nI != null) LabPBRConverter.applyAO(alb, se.pixW, nI, 0, 0, se.pixW, se.pixH);
+-                se.albedo = upload(api, "s" + se.index + "_a", alb, se.pixW, se.pixH,
+-                        TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
++                // NeoForge port: no per-sprite albedo texture; see buildPBR.
+                 if (nI != null || sI != null || sssI != null) {
+                     buildPBR(api, se, nI, sI, sssI, alb);
+                     pbr++;
+                 }
+-                if (se.emissive != null) emissiveCount++;
++                if (se.lightColor != null) emissiveCount++;
+                 if (se.lightColor != null) {
+                     spriteLightColors.put(e.getKey().toString(), se.lightColor);
+                 } else if (luminance > 0) {
+@@ -970,39 +970,22 @@ public class BlockTextureManager {
+     private void buildPBR(RemixAPI api, SpriteEntry se, NativeImage nI, NativeImage sI, NativeImage sssI,
+                           byte[] alb) {
+         int w = se.pixW, h = se.pixH;
+-        String p = "s" + se.index + "_";
+         se.hasPBR = nI != null || sI != null;
+ 
+-        if (nI != null) {
+-            byte[] nd = new byte[w * h * 4], hd = new byte[w * h];
+-            LabPBRConverter.blitNormal(nd, w, nI, 0, 0, w, h);
+-            LabPBRConverter.blitHeight(hd, w, nI, 0, 0, w, h);
+-            se.normal = upload(api, p + "n", nd, w, h, TextureFormat.RGBA8_UNORM, TexturePurpose.NORMAL_DX);
+-            se.height = upload(api, p + "h", hd, w, h, TextureFormat.R8_UNORM, TexturePurpose.HEIGHTMAP);
+-        }
+-        if (sI != null) {
+-            byte[] rd = new byte[w * h], md = new byte[w * h], sd = new byte[w * h * 4];
+-            LabPBRConverter.blitRoughness(rd, w, sI, 0, 0, w, h);
+-            LabPBRConverter.blitMetallic(md, w, sI, 0, 0, w, h);
+-            LabPBRConverter.blitSSS(sd, w, sI, 0, 0, w, h);
+-            se.roughness = upload(api, p + "r", rd, w, h, TextureFormat.R8_UNORM, TexturePurpose.DATA);
+-            se.metallic  = upload(api, p + "m", md, w, h, TextureFormat.R8_UNORM, TexturePurpose.DATA);
+-            if (LabPBRConverter.hasSSSData(sI)) {
+-                se.sss = upload(api, p + "s", sd, w, h, TextureFormat.RGBA8_UNORM, TexturePurpose.DATA);
+-                se.hasSSS = true;
+-            }
++        // NeoForge port: per-sprite PBR textures, like the per-sprite albedo, fed
++        // only getMaterial, which nothing calls; terrain samples the atlas-level
++        // maps. With ATMons' ~80k sprites they were tens of thousands of unused
++        // GPU textures, so only what the rest of the renderer reads is kept.
++        if (sI != null && LabPBRConverter.hasSSSData(sI)) {
++            se.hasSSS = true;
+         }
+         if (sssI != null) {
+-            byte[] ssa = new byte[w * h * 4];
+-            LabPBRConverter.blitSingleScatteringAlbedo(ssa, w, sssI, 0, 0, w, h);
+-            se.sssAlbedo = upload(api, p + "ssa", ssa, w, h, TextureFormat.RGBA8_UNORM, TexturePurpose.DATA);
+             se.hasSSS = true;
+         }
+         boolean needsEmissive = sI != null && LabPBRConverter.hasEmissiveData(sI);
+         if (needsEmissive) {
+             byte[] ed = new byte[w * h * 4];
+             LabPBRConverter.blitEmissive(ed, w, alb, sI, 0, 0, w, h, 0f);
+-            se.emissive = upload(api, p + "e", ed, w, h, TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
+             se.lightColor = computeLightColor(alb, ed, w, h);
+         }
+     }
+@@ -1067,7 +1050,8 @@ public class BlockTextureManager {
+ 
+     /** Returns the material for a sprite + layer, creating lazily. */
+     public RemixMaterial getMaterial(SpriteEntry se, int layerType) {
+-        if (se == null) return null;
++        // NeoForge port: sprites carry no per-sprite textures (see buildPBR).
++        if (se == null || se.albedo == null) return null;
+         long key = (long) se.index * LAYER_COUNT + layerType;
+         return materials.computeIfAbsent(key, k -> createMaterial(se, layerType));
+     }
